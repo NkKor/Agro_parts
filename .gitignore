@@ -1,0 +1,5 @@
+/.venv/
+.venv/
+/.venv/Lib/
+/data/
+.conda/

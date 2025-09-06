@@ -1,0 +1,8 @@
+flask
+torch
+torchvision
+faiss-gpu          # или faiss-cpu если без GPU
+opencv-python
+pillow
+numpy
+tqdm

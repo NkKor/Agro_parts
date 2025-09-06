@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <title>Search demo — Parts Retrieval</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <!-- Tailwind CDN (Play) -->
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-100">
+  <div class="max-w-4xl mx-auto p-6">
+    <h1 class="text-3xl font-semibold mb-4">Поиск детали по фото</h1>
+    <p class="mb-4 text-gray-600">Загрузи до 3 фото сломанной детали (разные ракурсы). Нажми "Найти" — сервис вернёт 5 наиболее похожих деталей.</p>
+
+    <form action="{{ url_for('search_route') }}" method="post" enctype="multipart/form-data" class="bg-white p-6 rounded shadow">
+      <label class="block mb-2 text-sm font-medium text-gray-700">Выбери фото (до 3)</label>
+      <input type="file" name="images" accept="image/*" multiple class="mb-4">
+      <div>
+        <button type="submit" class="px-4 py-2 bg-sky-600 text-white rounded">Найти</button>
+      </div>
+    </form>
+
+    <div class="mt-6 text-sm text-gray-500">
+      <p>Примечание: демо использует centroids + per-image rerank. Убедись, что ты предварительно запустил оффлайн-пайплайн (preprocess → extract_embeddings → build_centroids → build_index).</p>
+    </div>
+  </div>
+</body>
+</html>
