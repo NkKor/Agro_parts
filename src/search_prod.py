@@ -4,7 +4,7 @@ from encoder import ResNet50Encoder
 from config import (IDX_DIR, EMB_DIR, DEVICE, TARGET_SIZE, PAD_RATIO, MIN_OBJ_AREA, TOPK_DEFAULT)
 from utils_cv import find_largest_foreground_bbox, pad_bbox, center_square_crop, resize_high_quality
 
-# загрузка индексов и id
+# --- загрузка индексов и id ---
 CENTROIDS = np.load(EMB_DIR/"centroids.npy")
 CENTROID_IDS = np.load(EMB_DIR/"centroid_ids.npy", allow_pickle=True)
 IDX_C = faiss.read_index(str(IDX_DIR/"faiss_centroid.bin"))
@@ -21,7 +21,7 @@ transform = T.Compose([
 
 @torch.no_grad()
 def embed_bgr(img_bgr, model):
-    # быстрый препроцесс (как в оффлайне)
+    """Детект детали, кроп, resize и извлечение эмбеддинга"""
     bbox = find_largest_foreground_bbox(img_bgr, min_area_ratio=MIN_OBJ_AREA)
     if bbox is not None:
         bbox = pad_bbox(bbox, img_bgr.shape, pad_ratio=PAD_RATIO)
@@ -29,9 +29,9 @@ def embed_bgr(img_bgr, model):
         img_bgr = img_bgr[y1:y2, x1:x2]
     else:
         img_bgr = center_square_crop(img_bgr)
+
     img_bgr = resize_high_quality(img_bgr, TARGET_SIZE)
 
-    # в тензор
     import torchvision.transforms.functional as F
     img_rgb = cv.cvtColor(img_bgr, cv.COLOR_BGR2RGB)
     pil = F.to_pil_image(img_rgb)
@@ -39,10 +39,15 @@ def embed_bgr(img_bgr, model):
     emb = model(x).cpu().numpy()  # L2-норма уже применена в encoder
     return emb
 
+
 def search(query_path: str, topk=TOPK_DEFAULT, rerank_per_image=True, per_image_k=200):
+    """Поиск по базе"""
     model = ResNet50Encoder().to(DEVICE).eval()
 
     img = cv.imread(query_path, cv.IMREAD_COLOR)
+    if img is None:
+        raise FileNotFoundError(f"Не удалось открыть файл {query_path}")
+
     emb = embed_bgr(img, model)  # [1, D]
 
     # 1) быстрый поиск по центроидам
@@ -53,22 +58,21 @@ def search(query_path: str, topk=TOPK_DEFAULT, rerank_per_image=True, per_image_
         return list(zip(cand_part_ids, D[0].tolist()))
 
     # 2) переранжирование по per-image эмбеддингам кандидатов
-    # соберём индексы всех фото кандидатов
     cand_mask = np.isin(PERIMG_IDS, np.array(cand_part_ids, dtype=object))
     cand_vectors = PERIMG[cand_mask]
-    # косинусная близость = dot, т.к. L2-нормы = 1
-    sims = (emb @ cand_vectors.T).ravel()  # [M]
-    # агрегируем по part_id: max или mean; берём max для «лучшего совпадения»
+    sims = (emb @ cand_vectors.T).ravel()  # косинусная близость
     cand_ids = PERIMG_IDS[cand_mask]
+
     best = {}
     for sim, pid in zip(sims, cand_ids):
         best[pid] = max(best.get(pid, -1.0), float(sim))
-    # сортируем по sim убыв.
+
     ranked = sorted(best.items(), key=lambda x: x[1], reverse=True)[:topk]
-    # вернём как (part_id, similarity)
     return ranked
 
-def main():
+
+def main_cli():
+    """Запуск через командную строку"""
     ap = argparse.ArgumentParser()
     ap.add_argument("--query", required=True, type=str)
     ap.add_argument("--topk", type=int, default=TOPK_DEFAULT)
@@ -80,5 +84,19 @@ def main():
     for pid, score in results:
         print(f"{pid}\t{score:.4f}")
 
+
+def main_test():
+    """Тестовый запуск прямо из VSCode (без аргументов)"""
+    query = "data/test/1.jpg"  # пример
+    results = search(query, topk=5, rerank_per_image=True)
+    print("🔎 Тестовые результаты:")
+    for pid, score in results:
+        print(f"{pid}\t{score:.4f}")
+
+
 if __name__ == "__main__":
-    main()
+    import sys
+    if len(sys.argv) > 1:
+        main_cli()
+    else:
+        main_test()
