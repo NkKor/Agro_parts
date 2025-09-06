@@ -1,8 +1,32 @@
-flask
-torch
-torchvision
-faiss-gpu          # или faiss-cpu если без GPU
-opencv-python
-pillow
-numpy
-tqdm
+# Основные библиотеки для ML/нейросетей
+torch==2.3.0
+torchvision==0.18.0
+torchaudio==2.3.0
+
+# Работа с массивами и линал
+numpy==1.26.4
+scipy==1.13.1
+
+# Обработка изображений
+Pillow==10.3.0
+opencv-python==4.9.0.80
+
+# Веб-фреймворк
+flask==3.0.3
+jinja2==3.1.4
+Werkzeug==3.0.3
+
+# Для поиска ближайших соседей по эмбеддингам
+faiss-cpu==1.7.4
+scikit-learn==1.5.0
+
+# Визуализация
+matplotlib==3.9.0
+
+# Tailwind можно тянуть через CDN в шаблонах, но если управлять локально:
+# (необязательно, только если нужна сборка)
+# tailwindcss==3.4.4
+
+# Прочие удобные утилиты
+tqdm==4.66.4
+joblib==1.4.2
