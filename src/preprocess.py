@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """
-Предобработка изображений сельхоз-запчастей с использованием YOLO
+Предобработка изображений сельхоз-запчастей с YOLO
+Гибкие размеры для лучшего качества
 """
 
 import argparse
@@ -15,13 +16,15 @@ import time
 class YOLOPartPreprocessor:
     """Предобработчик изображений сельхоз-запчастей с YOLO"""
     
-    def __init__(self, target_size: int = 224, 
+    def __init__(self, target_size: int = 384,  # Увеличиваем по умолчанию
                  yolo_model: str = 'yolov8n.pt',
                  confidence_threshold: float = 0.25,
-                 iou_threshold: float = 0.45):
+                 iou_threshold: float = 0.45,
+                 preserve_aspect_ratio: bool = True):
         self.target_size = target_size
         self.confidence_threshold = confidence_threshold
         self.iou_threshold = iou_threshold
+        self.preserve_aspect_ratio = preserve_aspect_ratio
         
         # Загрузка YOLO модели
         self.yolo_model = self._load_yolo_model(yolo_model)
@@ -32,7 +35,6 @@ class YOLOPartPreprocessor:
             from ultralytics import YOLO
             print(f"🔄 Загрузка YOLO модели: {model_name}")
             
-            # Автоматическая загрузка модели (если не найдена - скачает)
             model = YOLO(model_name)
             print("✅ YOLO модель загружена успешно")
             return model
@@ -73,10 +75,8 @@ class YOLOPartPreprocessor:
     def detect_part_with_yolo(self, image: np.ndarray) -> Optional[Tuple[int, int, int, int]]:
         """
         Детекция сельхоз-запчасти с помощью YOLO
-        Возвращает (x, y, w, h) bounding box или None
         """
         try:
-            # Выполняем детекцию
             results = self.yolo_model(
                 image, 
                 conf=self.confidence_threshold,
@@ -84,29 +84,26 @@ class YOLOPartPreprocessor:
                 verbose=False
             )
             
-            # Обрабатываем результаты
             if len(results) > 0:
                 boxes = results[0].boxes
                 
                 if boxes is not None and len(boxes) > 0:
-                    # Получаем bounding boxes и уверенности
-                    bboxes = boxes.xyxy.cpu().numpy()  # [x1, y1, x2, y2]
+                    bboxes = boxes.xyxy.cpu().numpy()
                     confidences = boxes.conf.cpu().numpy()
                     
-                    # Выбираем бокс с максимальной уверенностью
+                    # Выбираем лучший бокс
                     best_idx = np.argmax(confidences)
-                    best_conf = confidences[best_idx]
                     box = bboxes[best_idx]
                     
                     x1, y1, x2, y2 = map(int, box)
                     width = x2 - x1
                     height = y2 - y1
                     
-                    # Добавляем отступы (20% от размера объекта)
-                    padding_x = int(width * 0.2)
-                    padding_y = int(height * 0.2)
+                    # Увеличенные отступы (30% для сельхоз деталей)
+                    padding_x = int(width * 0.3)
+                    padding_y = int(height * 0.3)
                     
-                    # Корректируем координаты с учетом границ изображения
+                    # Корректируем координаты
                     h, w = image.shape[:2]
                     x1_padded = max(0, x1 - padding_x)
                     y1_padded = max(0, y1 - padding_y)
@@ -125,73 +122,122 @@ class YOLOPartPreprocessor:
             return None
     
     def enhance_image_quality(self, image: np.ndarray) -> np.ndarray:
-        """Улучшение качества изображения для сельхоз-запчастей"""
+        """Улучшенное качество для сельхоз-деталей"""
         try:
-            # LAB цветовое пространство для лучшей обработки яркости
-            lab = cv.cvtColor(image, cv.COLOR_BGR2LAB)
-            l, a, b = cv.split(lab)
+            # Адаптивное улучшение в зависимости от размера
+            h, w = image.shape[:2]
+            min_dim = min(h, w)
             
-            # CLAHE для улучшения контраста (адаптивный)
-            clahe = cv.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
-            l = clahe.apply(l)
+            if min_dim < 100:
+                # Очень маленькие изображения - осторожная обработка
+                enhanced = cv.bilateralFilter(image, 5, 30, 30)
+            elif min_dim < 200:
+                # Маленькие изображения - умеренная обработка
+                # Улучшение контраста
+                lab = cv.cvtColor(image, cv.COLOR_BGR2LAB)
+                l, a, b = cv.split(lab)
+                clahe = cv.createCLAHE(clipLimit=2.5, tileGridSize=(6, 6))
+                l = clahe.apply(l)
+                enhanced = cv.merge([l, a, b])
+                enhanced = cv.cvtColor(enhanced, cv.COLOR_LAB2BGR)
+                # Мягкое шумоподавление
+                enhanced = cv.bilateralFilter(enhanced, 7, 50, 50)
+            else:
+                # Нормальные изображения - полная обработка
+                # Улучшение контраста
+                lab = cv.cvtColor(image, cv.COLOR_BGR2LAB)
+                l, a, b = cv.split(lab)
+                clahe = cv.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
+                l = clahe.apply(l)
+                enhanced = cv.merge([l, a, b])
+                enhanced = cv.cvtColor(enhanced, cv.COLOR_LAB2BGR)
+                # Шумоподавление
+                enhanced = cv.bilateralFilter(enhanced, 9, 75, 75)
             
-            # Объединяем обратно
-            enhanced = cv.merge([l, a, b])
-            enhanced = cv.cvtColor(enhanced, cv.COLOR_LAB2BGR)
-            
-            # Мягкое шумоподавление
-            enhanced = cv.bilateralFilter(enhanced, 9, 75, 75)
-            
-            # Легкое увеличение резкости
-            kernel = np.array([[-1, -1, -1],
-                              [-1,  9, -1],
-                              [-1, -1, -1]])
-            enhanced = cv.filter2D(enhanced, -1, kernel)
+            # Адаптивное увеличение резкости
+            if min_dim > 150:  # Только для достаточно больших изображений
+                kernel = np.array([[-1, -1, -1],
+                                  [-1,  9, -1],
+                                  [-1, -1, -1]])
+                enhanced = cv.filter2D(enhanced, -1, kernel)
             
             return enhanced
             
         except Exception:
-            # Fallback если что-то пошло не так
             return image
     
-    def smart_resize_with_padding(self, image: np.ndarray) -> np.ndarray:
-        """Умное изменение размера с padding до квадрата"""
+    def smart_resize(self, image: np.ndarray) -> np.ndarray:
+        """Умное изменение размера с сохранением качества"""
         h, w = image.shape[:2]
         
-        # Определяем коэффициент масштабирования
-        scale = self.target_size / max(h, w)
-        new_w = int(w * scale)
-        new_h = int(h * scale)
-        
-        # Изменяем размер с высоким качеством
-        if scale > 1:
-            # Увеличение - используем лучший алгоритм
-            resized = cv.resize(image, (new_w, new_h), interpolation=cv.INTER_LANCZOS4)
+        if self.preserve_aspect_ratio:
+            # Сохраняем пропорции
+            scale = self.target_size / max(h, w)
+            new_w = int(w * scale)
+            new_h = int(h * scale)
+            
+            # Выбираем алгоритм в зависимости от масштабирования
+            if scale > 1:
+                # Увеличение
+                resized = cv.resize(image, (new_w, new_h), interpolation=cv.INTER_LANCZOS4)
+            elif scale < 0.5:
+                # Сильное уменьшение
+                resized = cv.resize(image, (new_w, new_h), interpolation=cv.INTER_AREA)
+            else:
+                # Небольшое уменьшение
+                resized = cv.resize(image, (new_w, new_h), interpolation=cv.INTER_CUBIC)
+            
+            return resized
         else:
-            # Уменьшение - используем area для лучшего антиалиасинга
-            resized = cv.resize(image, (new_w, new_h), interpolation=cv.INTER_AREA)
+            # Простое изменение размера до квадрата
+            return cv.resize(image, (self.target_size, self.target_size), 
+                           interpolation=cv.INTER_LANCZOS4)
+    
+    def resize_with_padding_or_crop(self, image: np.ndarray) -> np.ndarray:
+        """Изменение размера с padding или обрезкой"""
+        h, w = image.shape[:2]
         
-        # Добавляем padding до квадрата
-        top = (self.target_size - new_h) // 2
-        bottom = self.target_size - new_h - top
-        left = (self.target_size - new_w) // 2
-        right = self.target_size - new_w - left
-        
-        # Заполняем серым цветом (нейтральный фон для технических деталей)
-        padded = cv.copyMakeBorder(
-            resized, top, bottom, left, right, 
-            cv.BORDER_CONSTANT, value=[128, 128, 128]
-        )
-        
-        return padded
+        # Если сохраняем пропорции - добавляем padding
+        if self.preserve_aspect_ratio:
+            scale = self.target_size / max(h, w)
+            new_w = int(w * scale)
+            new_h = int(h * scale)
+            
+            # Изменяем размер
+            if scale > 1:
+                resized = cv.resize(image, (new_w, new_h), interpolation=cv.INTER_LANCZOS4)
+            elif scale < 0.5:
+                resized = cv.resize(image, (new_w, new_h), interpolation=cv.INTER_AREA)
+            else:
+                resized = cv.resize(image, (new_w, new_h), interpolation=cv.INTER_CUBIC)
+            
+            # Добавляем padding
+            top = (self.target_size - new_h) // 2
+            bottom = self.target_size - new_h - top
+            left = (self.target_size - new_w) // 2
+            right = self.target_size - new_w - left
+            
+            # Заполняем серым (нейтральный фон для технических деталей)
+            padded = cv.copyMakeBorder(
+                resized, top, bottom, left, right, 
+                cv.BORDER_CONSTANT, value=[128, 128, 128]
+            )
+            
+            return padded
+        else:
+            # Без сохранения пропорций - просто изменяем размер
+            return cv.resize(image, (self.target_size, self.target_size), 
+                           interpolation=cv.INTER_LANCZOS4)
     
     def preprocess_single_image(self, src_path: Path, dst_path: Path) -> Dict[str, Any]:
         """
-        Полная предобработка одного изображения с YOLO
+        Полная предобработка одного изображения
         """
         stats = {
             'success': False,
             'operations': [],
+            'original_size': None,
+            'final_size': None,
             'detection_confidence': 0.0,
             'processing_time': 0.0
         }
@@ -199,23 +245,25 @@ class YOLOPartPreprocessor:
         start_time = time.time()
         
         try:
-            # 1. Чтение изображения
+            # Чтение изображения
             image = self.read_image_safe(src_path)
             if image is None:
                 stats['error'] = 'read_failed'
                 stats['processing_time'] = time.time() - start_time
                 return stats
             
-            # 2. Детекция объекта с помощью YOLO
+            stats['original_size'] = f"{image.shape[1]}x{image.shape[0]}"
+            
+            # Детекция объекта
             bbox = self.detect_part_with_yolo(image)
             
             if bbox is not None:
                 x, y, w, h = bbox
                 cropped = image[y:y+h, x:x+w]
                 stats['operations'].append('yolo_detection')
-                stats['detection_confidence'] = 0.5  # Примерное значение
+                stats['detection_confidence'] = 0.5
             else:
-                # Fallback: центральная обрезка
+                # Fallback: центральная обрезка до квадрата
                 h_img, w_img = image.shape[:2]
                 size = min(h_img, w_img)
                 y_start = (h_img - size) // 2
@@ -224,15 +272,16 @@ class YOLOPartPreprocessor:
                 stats['operations'].append('center_crop')
                 stats['detection_confidence'] = 0.0
             
-            # 3. Улучшение качества
+            # Улучшение качества
             enhanced = self.enhance_image_quality(cropped)
             stats['operations'].append('quality_enhancement')
             
-            # 4. Стандартизация размера
-            final_image = self.smart_resize_with_padding(enhanced)
-            stats['operations'].append('resize_padding')
+            # Изменение размера
+            final_image = self.resize_with_padding_or_crop(enhanced)
+            stats['operations'].append('resize')
+            stats['final_size'] = f"{final_image.shape[1]}x{final_image.shape[0]}"
             
-            # 5. Сохранение результата
+            # Сохранение результата
             success = self.write_image_safe(dst_path, final_image)
             stats['success'] = success
             
@@ -250,18 +299,18 @@ class YOLOPartPreprocessor:
                        test_mode: bool = False, 
                        test_limit: int = 100) -> Dict[str, int]:
         """
-        Обработка всего датасета с YOLO
+        Обработка всего датасета
         """
         print(f"🔍 Обработка датасета с YOLO: {src_root} → {dst_root}")
-        print(f"🤖 Используется модель: YOLOv8")
+        print(f"📏 Целевой размер: {self.target_size}×{self.target_size}")
+        print(f"🎯 Сохранение пропорций: {'Да' if self.preserve_aspect_ratio else 'Нет'}")
         
-        # Поиск всех изображений
+        # Поиск изображений
         files = list(src_root.rglob("*"))
         images = [p for p in files if p.suffix.lower() in [".jpg", ".jpeg", ".png"]]
         
         print(f"📊 Найдено изображений: {len(images)}")
         
-        # Тестовый режим
         if test_mode:
             images = images[:test_limit]
             print(f"🧪 Тестовый режим: обработка первых {len(images)} изображений")
@@ -277,7 +326,6 @@ class YOLOPartPreprocessor:
             'total_processing_time': 0.0
         }
         
-        # Обработка с прогресс-баром
         pbar = tqdm(images, desc="Обработка", unit="img")
         
         for src_path in pbar:
@@ -286,7 +334,6 @@ class YOLOPartPreprocessor:
             
             result = self.preprocess_single_image(src_path, dst_path)
             
-            # Обновление статистики
             stats['processed'] += 1
             stats['total_processing_time'] += result.get('processing_time', 0)
             
@@ -301,7 +348,6 @@ class YOLOPartPreprocessor:
                 elif result.get('error') == 'save_failed':
                     stats['save_errors'] += 1
             
-            # Обновление прогресс-бара
             pbar.set_postfix({
                 'Успех': stats['successful'],
                 'YOLO': stats['detection_success'],
@@ -315,10 +361,15 @@ def main():
         description="Предобработка изображений сельхоз-запчастей с YOLO",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
-Примеры использования:
-  %(prog)s --src data/raw --dst data/processed --test
-  %(prog)s --src data/raw --dst data/processed --limit 100
-  %(prog)s --src data/raw --dst data/processed --model yolov8s.pt
+Рекомендуемые размеры:
+  224 - стандартный (быстро, экономия памяти)
+  384 - оптимальный баланс (рекомендуется)
+  512 - максимальное качество
+  768 - для очень детализированных деталей
+
+Примеры:
+  %(prog)s --src data/raw --dst data/processed --size 384 --test
+  %(prog)s --src data/raw --dst data/processed --size 512
         """
     )
     
@@ -330,18 +381,21 @@ def main():
                        help="Тестовый режим")
     parser.add_argument("--limit", type=int, default=100,
                        help="Лимит изображений для теста (default: 100)")
-    parser.add_argument("--size", type=int, default=224,
-                       help="Целевой размер изображения (default: 224)")
+    parser.add_argument("--size", type=int, default=384,  # Увеличиваем по умолчанию
+                       help="Целевой размер изображения (default: 384)")
     parser.add_argument("--model", type=str, default='yolov8n.pt',
                        help="YOLO модель (default: yolov8n.pt)")
     parser.add_argument("--conf", type=float, default=0.25,
                        help="Порог уверенности (default: 0.25)")
     parser.add_argument("--iou", type=float, default=0.45,
                        help="Порог IoU (default: 0.45)")
+    parser.add_argument("--preserve-aspect", action="store_true", default=True,
+                       help="Сохранять пропорции изображения (default: True)")
+    parser.add_argument("--no-preserve-aspect", dest="preserve_aspect", action="store_false",
+                       help="Не сохранять пропорции (растянуть до квадрата)")
     
     args = parser.parse_args()
     
-    # Проверка путей
     src_path = Path(args.src)
     dst_path = Path(args.dst)
     
@@ -349,18 +403,19 @@ def main():
         print(f"❌ Исходная директория не найдена: {src_path}")
         return 1
     
-    # Создание препроцессора
     print("🚜 Начало предобработки изображений сельхоз-запчастей (YOLO)")
     print("=" * 70)
+    print(f"📏 Размер изображений: {args.size}×{args.size}")
+    print(f"🎯 Сохранение пропорций: {'Да' if args.preserve_aspect else 'Нет'}")
     
     preprocessor = YOLOPartPreprocessor(
         target_size=args.size,
         yolo_model=args.model,
         confidence_threshold=args.conf,
-        iou_threshold=args.iou
+        iou_threshold=args.iou,
+        preserve_aspect_ratio=args.preserve_aspect
     )
     
-    # Выполнение обработки
     start_time = time.time()
     stats = preprocessor.process_dataset(
         src_path, dst_path, 
@@ -369,7 +424,6 @@ def main():
     )
     total_time = time.time() - start_time
     
-    # Финальная статистика
     print("\n" + "=" * 70)
     print("🏁 РЕЗУЛЬТАТЫ ОБРАБОТКИ")
     print("=" * 70)
@@ -396,6 +450,16 @@ def main():
         print(f"⚡ Производительность: {images_per_second:.2f} изображений/сек")
     
     print(f"\n📁 Результаты сохранены в: {dst_path}")
+    
+    # Рекомендации по размеру
+    if args.size < 256:
+        print("\n💡 РЕКОМЕНДАЦИИ:")
+        print("   ⚠️  Рекомендуется использовать размер ≥ 384 для сельхоз-запчастей")
+        print("   🎯 384×384 - оптимальный баланс качество/производительность")
+    elif args.size >= 512:
+        print("\n💡 ИНФОРМАЦИЯ:")
+        print("   ⚡ Для больших размеров требуется больше памяти")
+        print("   ⏱️  Время обработки увеличится пропорционально площади")
     
     return 0
 
