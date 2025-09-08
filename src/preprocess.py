@@ -10,9 +10,7 @@ python src/preprocess.py --src data/raw --dst data/processed --size 256 --test -
 на CUDA
 Полная обработка с авто-выбором устройства:
 python src/preprocess.py --src data/raw --dst data/processed --size 384
-с указанием устройства принудительно:
-python src/preprocess.py --src data/raw --dst data/processed --size 384 --device cuda
-python src/preprocess.py --src data/raw --dst data/processed --size 384 --device cuda:0
+
 
 """
 
