@@ -1,7 +1,19 @@
-#!/usr/bin/env python3
+# Утилита препроцессинга фото поддерживает тестовый и полный запуск в shell с помощью команд, описанных ниже
 """
 Предобработка изображений сельхоз-запчастей с YOLO
 Гибкие размеры для лучшего качества
+CLI:
+Тестовая обработка указанного количества изображений с выбранным качеством:
+python src/preprocess.py --src data/raw --dst data/processed --size 384 --test --limit 50
+python src/preprocess.py --src data/raw --dst data/processed --size 512 --test --limit 20
+python src/preprocess.py --src data/raw --dst data/processed --size 256 --test --limit 100
+на CUDA
+Полная обработка с авто-выбором устройства:
+python src/preprocess.py --src data/raw --dst data/processed --size 384
+с указанием устройства принудительно:
+python src/preprocess.py --src data/raw --dst data/processed --size 384 --device cuda
+python src/preprocess.py --src data/raw --dst data/processed --size 384 --device cuda:0
+
 """
 
 import argparse
