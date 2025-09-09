@@ -7,7 +7,7 @@ EMB_DIR = Path("data/embeddings")
 IDX_DIR = Path("data/index")
 
 # Препроцессинг
-TARGET_SIZE = 336          # входной размер (ResNet50 обычно 224, но можно 256/336)
+TARGET_SIZE = 336          # входной размер (ResNet50 обычно 224, но можно 256/336/512)
 PAD_RATIO = 0.06           # расширение бокса (6%)
 MIN_OBJ_AREA = 0.12        # минимальная доля кадра, считаем валидным контуром
 BLUR_VAR_THR = 60.0        # порог размытия (Laplacian variance)
