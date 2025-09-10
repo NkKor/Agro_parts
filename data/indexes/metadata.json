@@ -1,0 +1,11 @@
+{
+  "created_at": "2025-09-10T18:58:14.670706",
+  "total_images": 43348,
+  "total_parts": 2184,
+  "embedding_dim": 2048,
+  "index_type_images": "Flat",
+  "index_type_centroids": "Flat",
+  "source_embeddings": "data\\embeddings",
+  "source_centroids": "data\\centroids",
+  "processing_time": 18.96706795692444
+}

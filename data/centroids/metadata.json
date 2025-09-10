@@ -1,0 +1,8 @@
+{
+  "created_at": "2025-09-10T18:57:30.861288",
+  "total_parts": 2184,
+  "embedding_dim": 2048,
+  "data_type": "float32",
+  "source_embeddings": "data\\embeddings",
+  "processing_time": 0.5550825595855713
+}
