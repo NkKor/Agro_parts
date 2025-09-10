@@ -2,5 +2,7 @@
 .venv/
 /.venv/Lib/
 /data/raw
+/data/embeddings
+/data/test
 /data/processed
 .conda/

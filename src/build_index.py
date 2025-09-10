@@ -1,28 +1,34 @@
-import numpy as np, faiss
-from pathlib import Path
-from config import EMB_DIR, IDX_DIR, FAISS_HNSW_M
-
-def build_hnsw(vectors: np.ndarray, m=32):
-    dim = vectors.shape[1]
-    index = faiss.IndexHNSWFlat(dim, m)
-    index.hnsw.efConstruction = 200
-    index.add(vectors.astype("float32"))
-    return index
+import argparse
+import numpy as np
+import faiss
+from tqdm import tqdm
+from config import EMB_DIR, IDX_DIR
 
 def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--update", action="store_true", help="пересоздать индексы")
+    args = ap.parse_args()
+
+    perimg = np.load(EMB_DIR / "per_image.npy")
+    centroids = np.load(EMB_DIR / "centroids.npy")
+
     IDX_DIR.mkdir(parents=True, exist_ok=True)
 
-    # центроидный индекс (основной)
-    C = np.load(EMB_DIR/"centroids.npy")
-    idx_c = build_hnsw(C, m=FAISS_HNSW_M)
-    faiss.write_index(idx_c, str(IDX_DIR/"faiss_centroid.bin"))
+    # FAISS index по per-image
+    dim = perimg.shape[1]
+    print("🔄 Строим индекс для per-image эмбеддингов...")
+    idx_img = faiss.IndexFlatIP(dim)
+    idx_img.add(perimg.astype("float32"))
+    faiss.write_index(idx_img, str(IDX_DIR / "faiss_img.bin"))
 
-    # per-image индекс (для вторичного rerank; опционально)
-    X = np.load(EMB_DIR/"per_image.npy")
-    idx_x = build_hnsw(X, m=FAISS_HNSW_M)
-    faiss.write_index(idx_x, str(IDX_DIR/"faiss_img.bin"))
+    # FAISS index по центроидам
+    dim_c = centroids.shape[1]
+    print("🔄 Строим индекс для центроидов...")
+    idx_c = faiss.IndexFlatIP(dim_c)
+    idx_c.add(centroids.astype("float32"))
+    faiss.write_index(idx_c, str(IDX_DIR / "faiss_centroid.bin"))
 
-    print("✅ FAISS indices saved.")
+    print("✅ Индексы пересозданы.")
 
 if __name__ == "__main__":
     main()

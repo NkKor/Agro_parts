@@ -2,16 +2,27 @@
 """
 Предобработка изображений сельхоз-запчастей с YOLO
 Гибкие размеры для лучшего качества
+
 CLI:
-Тестовая обработка указанного количества изображений с выбранным качеством:
-python src/preprocess.py --src data/raw --dst data/processed --size 384 --test --limit 50
-python src/preprocess.py --src data/raw --dst data/processed --size 512 --test --limit 20
-python src/preprocess.py --src data/raw --dst data/processed --size 256 --test --limit 100
-на CUDA
-Полная обработка с авто-выбором устройства:
+1. Обычная обработка (пропуск существующих):
 python src/preprocess.py --src data/raw --dst data/processed --size 384
 
+2. Принудительная обработка всех файлов:
+python src/preprocess.py --src data/raw --dst data/processed --size 384 --force
 
+3. Тестовая обработка новых файлов:
+python src/preprocess.py --src data/raw --dst data/processed --size 512 --test --limit 50
+
+--skip-existing (параметр по умолчанию) - пропускать существующие фото в датасете, позволяет быстро добавлять новые данные
+--force - обработать все заново, включая все существующие фото в data/processed
+
+# Все эти размеры поддерживаются ResNet50:
+sizes = [224, 256, 288, 320, 384, 448, 512, 640, 768]
+
+# Производительность vs Качество:
+# 224×224 - быстрее, но может терять детали
+# 384×384 - оптимальный баланс (рекомендуется)
+# 512×512 - максимальное качество
 """
 
 import argparse
@@ -22,19 +33,31 @@ from tqdm import tqdm
 import sys
 from typing import Tuple, Optional, Dict, Any
 import time
+import torch
 
 class YOLOPartPreprocessor:
     """Предобработчик изображений сельхоз-запчастей с YOLO"""
     
-    def __init__(self, target_size: int = 384,  # Увеличиваем по умолчанию
+    def __init__(self, target_size: int = 384,
                  yolo_model: str = 'yolov8n.pt',
                  confidence_threshold: float = 0.25,
                  iou_threshold: float = 0.45,
-                 preserve_aspect_ratio: bool = True):
+                 preserve_aspect_ratio: bool = True,
+                 device: str = 'auto',
+                 skip_existing: bool = True):
         self.target_size = target_size
         self.confidence_threshold = confidence_threshold
         self.iou_threshold = iou_threshold
         self.preserve_aspect_ratio = preserve_aspect_ratio
+        self.skip_existing = skip_existing
+        
+        # Установка устройства
+        if device == 'auto':
+            self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        else:
+            self.device = device
+        
+        print(f"🔧 Используется устройство: {self.device}")
         
         # Загрузка YOLO модели
         self.yolo_model = self._load_yolo_model(yolo_model)
@@ -46,6 +69,9 @@ class YOLOPartPreprocessor:
             print(f"🔄 Загрузка YOLO модели: {model_name}")
             
             model = YOLO(model_name)
+            # Установка устройства
+            model.to(self.device)
+            
             print("✅ YOLO модель загружена успешно")
             return model
             
@@ -91,6 +117,7 @@ class YOLOPartPreprocessor:
                 image, 
                 conf=self.confidence_threshold,
                 iou=self.iou_threshold,
+                device=self.device,
                 verbose=False
             )
             
@@ -134,38 +161,29 @@ class YOLOPartPreprocessor:
     def enhance_image_quality(self, image: np.ndarray) -> np.ndarray:
         """Улучшенное качество для сельхоз-деталей"""
         try:
-            # Адаптивное улучшение в зависимости от размера
             h, w = image.shape[:2]
             min_dim = min(h, w)
             
             if min_dim < 100:
-                # Очень маленькие изображения - осторожная обработка
                 enhanced = cv.bilateralFilter(image, 5, 30, 30)
             elif min_dim < 200:
-                # Маленькие изображения - умеренная обработка
-                # Улучшение контраста
                 lab = cv.cvtColor(image, cv.COLOR_BGR2LAB)
                 l, a, b = cv.split(lab)
                 clahe = cv.createCLAHE(clipLimit=2.5, tileGridSize=(6, 6))
                 l = clahe.apply(l)
                 enhanced = cv.merge([l, a, b])
                 enhanced = cv.cvtColor(enhanced, cv.COLOR_LAB2BGR)
-                # Мягкое шумоподавление
                 enhanced = cv.bilateralFilter(enhanced, 7, 50, 50)
             else:
-                # Нормальные изображения - полная обработка
-                # Улучшение контраста
                 lab = cv.cvtColor(image, cv.COLOR_BGR2LAB)
                 l, a, b = cv.split(lab)
                 clahe = cv.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
                 l = clahe.apply(l)
                 enhanced = cv.merge([l, a, b])
                 enhanced = cv.cvtColor(enhanced, cv.COLOR_LAB2BGR)
-                # Шумоподавление
                 enhanced = cv.bilateralFilter(enhanced, 9, 75, 75)
             
-            # Адаптивное увеличение резкости
-            if min_dim > 150:  # Только для достаточно больших изображений
+            if min_dim > 150:
                 kernel = np.array([[-1, -1, -1],
                                   [-1,  9, -1],
                                   [-1, -1, -1]])
@@ -176,38 +194,10 @@ class YOLOPartPreprocessor:
         except Exception:
             return image
     
-    def smart_resize(self, image: np.ndarray) -> np.ndarray:
-        """Умное изменение размера с сохранением качества"""
-        h, w = image.shape[:2]
-        
-        if self.preserve_aspect_ratio:
-            # Сохраняем пропорции
-            scale = self.target_size / max(h, w)
-            new_w = int(w * scale)
-            new_h = int(h * scale)
-            
-            # Выбираем алгоритм в зависимости от масштабирования
-            if scale > 1:
-                # Увеличение
-                resized = cv.resize(image, (new_w, new_h), interpolation=cv.INTER_LANCZOS4)
-            elif scale < 0.5:
-                # Сильное уменьшение
-                resized = cv.resize(image, (new_w, new_h), interpolation=cv.INTER_AREA)
-            else:
-                # Небольшое уменьшение
-                resized = cv.resize(image, (new_w, new_h), interpolation=cv.INTER_CUBIC)
-            
-            return resized
-        else:
-            # Простое изменение размера до квадрата
-            return cv.resize(image, (self.target_size, self.target_size), 
-                           interpolation=cv.INTER_LANCZOS4)
-    
     def resize_with_padding_or_crop(self, image: np.ndarray) -> np.ndarray:
         """Изменение размера с padding или обрезкой"""
         h, w = image.shape[:2]
         
-        # Если сохраняем пропорции - добавляем padding
         if self.preserve_aspect_ratio:
             scale = self.target_size / max(h, w)
             new_w = int(w * scale)
@@ -227,7 +217,6 @@ class YOLOPartPreprocessor:
             left = (self.target_size - new_w) // 2
             right = self.target_size - new_w - left
             
-            # Заполняем серым (нейтральный фон для технических деталей)
             padded = cv.copyMakeBorder(
                 resized, top, bottom, left, right, 
                 cv.BORDER_CONSTANT, value=[128, 128, 128]
@@ -235,7 +224,6 @@ class YOLOPartPreprocessor:
             
             return padded
         else:
-            # Без сохранения пропорций - просто изменяем размер
             return cv.resize(image, (self.target_size, self.target_size), 
                            interpolation=cv.INTER_LANCZOS4)
     
@@ -249,12 +237,21 @@ class YOLOPartPreprocessor:
             'original_size': None,
             'final_size': None,
             'detection_confidence': 0.0,
-            'processing_time': 0.0
+            'processing_time': 0.0,
+            'skipped': False
         }
         
         start_time = time.time()
         
         try:
+            # Проверка существования выходного файла
+            if self.skip_existing and dst_path.exists():
+                stats['skipped'] = True
+                stats['success'] = True
+                stats['operations'].append('skipped_existing')
+                stats['processing_time'] = time.time() - start_time
+                return stats
+            
             # Чтение изображения
             image = self.read_image_safe(src_path)
             if image is None:
@@ -305,25 +302,68 @@ class YOLOPartPreprocessor:
         stats['processing_time'] = time.time() - start_time
         return stats
     
+    def get_pending_images(self, src_root: Path, dst_root: Path) -> list:
+        """Получение списка изображений, требующих обработки"""
+        # Поиск всех изображений
+        files = list(src_root.rglob("*"))
+        images = [p for p in files if p.suffix.lower() in [".jpg", ".jpeg", ".png"]]
+        
+        if not self.skip_existing:
+            return images
+        
+        # Фильтрация: только те, которых нет в выходной директории
+        pending_images = []
+        for src_path in images:
+            rel_path = src_path.relative_to(src_root)
+            dst_path = dst_root / rel_path.with_suffix(".jpg")
+            if not dst_path.exists():
+                pending_images.append(src_path)
+        
+        return pending_images
+    
     def process_dataset(self, src_root: Path, dst_root: Path, 
                        test_mode: bool = False, 
                        test_limit: int = 100) -> Dict[str, int]:
         """
-        Обработка всего датасета
+        Обработка всего датасета с пропуском существующих файлов
         """
         print(f"🔍 Обработка датасета с YOLO: {src_root} → {dst_root}")
         print(f"📏 Целевой размер: {self.target_size}×{self.target_size}")
         print(f"🎯 Сохранение пропорций: {'Да' if self.preserve_aspect_ratio else 'Нет'}")
+        print(f"⏭️  Пропуск существующих: {'Да' if self.skip_existing else 'Нет'}")
         
-        # Поиск изображений
-        files = list(src_root.rglob("*"))
-        images = [p for p in files if p.suffix.lower() in [".jpg", ".jpeg", ".png"]]
+        # Получение списка изображений для обработки
+        all_images = list(src_root.rglob("*"))
+        all_images = [p for p in all_images if p.suffix.lower() in [".jpg", ".jpeg", ".png"]]
+        total_images = len(all_images)
         
-        print(f"📊 Найдено изображений: {len(images)}")
+        pending_images = self.get_pending_images(src_root, dst_root)
+        pending_count = len(pending_images)
         
+        print(f"📊 Всего изображений: {total_images}")
+        print(f"📋 Требуют обработки: {pending_count}")
+        
+        if self.skip_existing and pending_count == 0:
+            print("✅ Все изображения уже обработаны!")
+            return {
+                'processed': 0,
+                'successful': 0,
+                'failed': 0,
+                'read_errors': 0,
+                'save_errors': 0,
+                'detection_success': 0,
+                'skipped': total_images,
+                'total_processing_time': 0.0
+            }
+        
+        # Тестовый режим
         if test_mode:
-            images = images[:test_limit]
-            print(f"🧪 Тестовый режим: обработка первых {len(images)} изображений")
+            # Для теста берем из pending_images
+            images_to_process = pending_images[:test_limit] if pending_images else all_images[:test_limit]
+            print(f"🧪 Тестовый режим: обработка первых {len(images_to_process)} изображений")
+        else:
+            images_to_process = pending_images if self.skip_existing else all_images
+            print(f"🚀 Обработка {len(images_to_process)} изображений")
         
         # Статистика
         stats = {
@@ -333,10 +373,11 @@ class YOLOPartPreprocessor:
             'read_errors': 0,
             'save_errors': 0,
             'detection_success': 0,
+            'skipped': total_images - pending_count if self.skip_existing else 0,
             'total_processing_time': 0.0
         }
         
-        pbar = tqdm(images, desc="Обработка", unit="img")
+        pbar = tqdm(images_to_process, desc="Обработка", unit="img")
         
         for src_path in pbar:
             rel_path = src_path.relative_to(src_root)
@@ -348,9 +389,13 @@ class YOLOPartPreprocessor:
             stats['total_processing_time'] += result.get('processing_time', 0)
             
             if result['success']:
-                stats['successful'] += 1
-                if 'yolo_detection' in result.get('operations', []):
-                    stats['detection_success'] += 1
+                if result.get('skipped', False):
+                    # Уже подсчитано в 'skipped'
+                    pass
+                else:
+                    stats['successful'] += 1
+                    if 'yolo_detection' in result.get('operations', []):
+                        stats['detection_success'] += 1
             else:
                 stats['failed'] += 1
                 if result.get('error') == 'read_failed':
@@ -358,10 +403,12 @@ class YOLOPartPreprocessor:
                 elif result.get('error') == 'save_failed':
                     stats['save_errors'] += 1
             
+            # Обновление прогресс-бара
             pbar.set_postfix({
-                'Успех': stats['successful'],
+                'Новые': stats['successful'],
                 'YOLO': stats['detection_success'],
-                'Ошибка': stats['failed']
+                'Ошибка': stats['failed'],
+                'Пропущ': stats['skipped']
             })
         
         return stats
@@ -375,11 +422,11 @@ def main():
   224 - стандартный (быстро, экономия памяти)
   384 - оптимальный баланс (рекомендуется)
   512 - максимальное качество
-  768 - для очень детализированных деталей
 
 Примеры:
-  %(prog)s --src data/raw --dst data/processed --size 384 --test
-  %(prog)s --src data/raw --dst data/processed --size 512
+  %(prog)s --src data/raw --dst data/processed --size 384
+  %(prog)s --src data/raw --dst data/processed --size 384 --test --limit 100
+  %(prog)s --src data/raw --dst data/processed --force  # Обработать все заново
         """
     )
     
@@ -391,7 +438,7 @@ def main():
                        help="Тестовый режим")
     parser.add_argument("--limit", type=int, default=100,
                        help="Лимит изображений для теста (default: 100)")
-    parser.add_argument("--size", type=int, default=384,  # Увеличиваем по умолчанию
+    parser.add_argument("--size", type=int, default=384,
                        help="Целевой размер изображения (default: 384)")
     parser.add_argument("--model", type=str, default='yolov8n.pt',
                        help="YOLO модель (default: yolov8n.pt)")
@@ -403,8 +450,18 @@ def main():
                        help="Сохранять пропорции изображения (default: True)")
     parser.add_argument("--no-preserve-aspect", dest="preserve_aspect", action="store_false",
                        help="Не сохранять пропорции (растянуть до квадрата)")
+    parser.add_argument("--device", type=str, default='auto',
+                       help="Устройство: 'cpu', 'cuda', 'cuda:0', 'auto' (default: auto)")
+    parser.add_argument("--force", action="store_true",
+                       help="Обработать все файлы заново (игнорировать существующие)")
+    parser.add_argument("--skip-existing", action="store_true", default=True,
+                       help="Пропускать уже обработанные файлы (default: True)")
     
     args = parser.parse_args()
+    
+    # Если указан --force, отключаем пропуск существующих
+    if args.force:
+        args.skip_existing = False
     
     src_path = Path(args.src)
     dst_path = Path(args.dst)
@@ -417,13 +474,17 @@ def main():
     print("=" * 70)
     print(f"📏 Размер изображений: {args.size}×{args.size}")
     print(f"🎯 Сохранение пропорций: {'Да' if args.preserve_aspect else 'Нет'}")
+    print(f"⏭️  Пропуск существующих: {'Да' if args.skip_existing else 'Нет'}")
+    print(f"🔧 Устройство: {args.device}")
     
     preprocessor = YOLOPartPreprocessor(
         target_size=args.size,
         yolo_model=args.model,
         confidence_threshold=args.conf,
         iou_threshold=args.iou,
-        preserve_aspect_ratio=args.preserve_aspect
+        preserve_aspect_ratio=args.preserve_aspect,
+        device=args.device,
+        skip_existing=args.skip_existing
     )
     
     start_time = time.time()
@@ -442,6 +503,8 @@ def main():
     print(f"   - Ошибки чтения: {stats['read_errors']}")
     print(f"   - Ошибки записи: {stats['save_errors']}")
     print(f"🎯 Успешная детекция YOLO: {stats['detection_success']}")
+    if args.skip_existing:
+        print(f"⏭️  Пропущено существующих: {stats['skipped']}")
     print(f"📊 Всего обработано: {stats['processed']}")
     
     if stats['processed'] > 0:
@@ -450,26 +513,24 @@ def main():
         print(f"📈 Процент успеха: {success_rate:.1f}%")
         print(f"🎯 Процент детекции: {detection_rate:.1f}%")
         
-        avg_time = stats['total_processing_time'] / stats['processed']
-        print(f"⏱️  Среднее время на изображение: {avg_time:.2f} сек")
+        if stats['processed'] > 0:
+            avg_time = stats['total_processing_time'] / stats['processed']
+            print(f"⏱️  Среднее время на изображение: {avg_time:.2f} сек")
     
     print(f"⏱️  Общее время обработки: {total_time:.2f} сек")
     
     if stats['successful'] > 0:
-        images_per_second = stats['successful'] / total_time
+        images_per_second = stats['successful'] / total_time if total_time > 0 else 0
         print(f"⚡ Производительность: {images_per_second:.2f} изображений/сек")
     
     print(f"\n📁 Результаты сохранены в: {dst_path}")
     
-    # Рекомендации по размеру
+    # Рекомендации
     if args.size < 256:
         print("\n💡 РЕКОМЕНДАЦИИ:")
         print("   ⚠️  Рекомендуется использовать размер ≥ 384 для сельхоз-запчастей")
         print("   🎯 384×384 - оптимальный баланс качество/производительность")
-    elif args.size >= 512:
-        print("\n💡 ИНФОРМАЦИЯ:")
-        print("   ⚡ Для больших размеров требуется больше памяти")
-        print("   ⏱️  Время обработки увеличится пропорционально площади")
+        print("   📈 512×512 - более высокое качество/ниже производительность из-за нагрузки на CUDA")
     
     return 0
 
