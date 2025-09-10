@@ -4,6 +4,7 @@
 /data/raw
 /data/embeddings/embeddings.pkl
 /data/embeddings/per_image.npy
+/data/indexes/image_index.faiss
 /data/test
 /data/processed
 .conda/
