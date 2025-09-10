@@ -11,9 +11,9 @@ import faiss
 from werkzeug.utils import secure_filename
 
 # --- Импорт наших модулей (предполагаем, что PYTHONPATH включает project_root/src) ---
-from config import DEVICE, TARGET_SIZE, PAD_RATIO, MIN_OBJ_AREA, EMB_DIR, IDX_DIR, PROC_DIR
-from utils_cv import find_largest_foreground_bbox, pad_bbox, center_square_crop, resize_high_quality
-from encoder import ResNet50Encoder
+from utils.config import DEVICE, TARGET_SIZE, PAD_RATIO, MIN_OBJ_AREA, EMB_DIR, IDX_DIR, PROC_DIR
+from utils.utils_cv import find_largest_foreground_bbox, pad_bbox, center_square_crop, resize_high_quality
+from models.encoder import ResNet50Encoder
 
 # Путь для временных загрузок
 TMP_DIR = Path("tmp_uploads")

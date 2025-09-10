@@ -2,9 +2,9 @@ import argparse, cv2 as cv, numpy as np, faiss, torch, torchvision.transforms as
 import matplotlib.pyplot as plt
 from pathlib import Path
 
-from encoder import ResNet50Encoder
-from config import (IDX_DIR, EMB_DIR, DEVICE, TARGET_SIZE, PAD_RATIO, MIN_OBJ_AREA, TOPK_DEFAULT)
-from utils_cv import find_largest_foreground_bbox, pad_bbox, center_square_crop, resize_high_quality
+from models.encoder import ResNet50Encoder
+from utils.config import (IDX_DIR, EMB_DIR, DEVICE, TARGET_SIZE, PAD_RATIO, MIN_OBJ_AREA, TOPK_DEFAULT)
+from utils.utils_cv import find_largest_foreground_bbox, pad_bbox, center_square_crop, resize_high_quality
 
 # --- загрузка индексов и id ---
 CENTROIDS = np.load(EMB_DIR/"centroids.npy")

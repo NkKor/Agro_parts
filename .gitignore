@@ -2,7 +2,8 @@
 .venv/
 /.venv/Lib/
 /data/raw
-/data/embeddings
+/data/embeddings/embeddings.pkl
+/data/embeddings/per_image.npy
 /data/test
 /data/processed
 .conda/

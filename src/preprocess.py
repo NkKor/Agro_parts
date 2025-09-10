@@ -1,7 +1,7 @@
 # Утилита препроцессинга фото поддерживает тестовый и полный запуск в shell с помощью команд, описанных ниже
 """
 Предобработка изображений сельхоз-запчастей с YOLO
-Гибкие размеры для лучшего качества
+С кэшированием моделей и пропуском существующих файлов
 
 CLI:
 1. Обычная обработка (пропуск существующих):
@@ -34,6 +34,7 @@ import sys
 from typing import Tuple, Optional, Dict, Any
 import time
 import torch
+import os
 
 class YOLOPartPreprocessor:
     """Предобработчик изображений сельхоз-запчастей с YOLO"""
@@ -44,12 +45,17 @@ class YOLOPartPreprocessor:
                  iou_threshold: float = 0.45,
                  preserve_aspect_ratio: bool = True,
                  device: str = 'auto',
-                 skip_existing: bool = True):
+                 skip_existing: bool = True,
+                 models_dir: str = 'src/models'):
         self.target_size = target_size
         self.confidence_threshold = confidence_threshold
         self.iou_threshold = iou_threshold
         self.preserve_aspect_ratio = preserve_aspect_ratio
         self.skip_existing = skip_existing
+        self.models_dir = Path(models_dir)
+        
+        # Создаем директорию для моделей
+        self.models_dir.mkdir(parents=True, exist_ok=True)
         
         # Установка устройства
         if device == 'auto':
@@ -58,17 +64,62 @@ class YOLOPartPreprocessor:
             self.device = device
         
         print(f"🔧 Используется устройство: {self.device}")
+        print(f"📂 Директория моделей: {self.models_dir}")
         
         # Загрузка YOLO модели
         self.yolo_model = self._load_yolo_model(yolo_model)
     
+    def _get_model_path(self, model_name: str) -> Path:
+        """Получение пути к локальной копии модели"""
+        # Если модель уже локальный файл
+        if Path(model_name).exists():
+            return Path(model_name)
+        
+        # Иначе ищем в директории моделей
+        local_model_path = self.models_dir / model_name
+        return local_model_path
+    
+    def _download_model_if_needed(self, model_name: str) -> str:
+        """Скачивание модели если она не существует локально"""
+        local_model_path = self._get_model_path(model_name)
+        
+        # Если модель уже существует локально
+        if local_model_path.exists():
+            print(f"📥 Используется локальная модель: {local_model_path}")
+            return str(local_model_path)
+        
+        # Если это стандартная модель YOLO, скачиваем
+        standard_models = ['yolov8n.pt', 'yolov8s.pt', 'yolov8m.pt', 'yolov8l.pt', 'yolov8x.pt']
+        
+        if model_name in standard_models:
+            print(f"📥 Скачивание модели {model_name} в {local_model_path}...")
+            try:
+                from ultralytics import YOLO
+                # Создаем временную модель для скачивания
+                temp_model = YOLO(model_name)
+                # Сохраняем модель локально
+                temp_model.model.save(str(local_model_path))
+                print(f"✅ Модель сохранена: {local_model_path}")
+                return str(local_model_path)
+            except Exception as e:
+                print(f"⚠️  Ошибка скачивания модели: {e}")
+                print("💡 Используется онлайн-загрузка...")
+                return model_name  # Вернем оригинальное имя для онлайн-загрузки
+        else:
+            # Для пользовательских моделей просто возвращаем имя
+            return model_name
+    
     def _load_yolo_model(self, model_name: str):
-        """Загрузка YOLO модели"""
+        """Загрузка YOLO модели с кэшированием"""
         try:
             from ultralytics import YOLO
-            print(f"🔄 Загрузка YOLO модели: {model_name}")
             
-            model = YOLO(model_name)
+            # Проверяем и скачиваем модель при необходимости
+            local_model_path = self._download_model_if_needed(model_name)
+            
+            print(f"🔄 Загрузка YOLO модели: {local_model_path}")
+            
+            model = YOLO(local_model_path)
             # Установка устройства
             model.to(self.device)
             
@@ -331,6 +382,7 @@ class YOLOPartPreprocessor:
         print(f"📏 Целевой размер: {self.target_size}×{self.target_size}")
         print(f"🎯 Сохранение пропорций: {'Да' if self.preserve_aspect_ratio else 'Нет'}")
         print(f"⏭️  Пропуск существующих: {'Да' if self.skip_existing else 'Нет'}")
+        print(f"📂 Директория моделей: {self.models_dir}")
         
         # Получение списка изображений для обработки
         all_images = list(src_root.rglob("*"))
@@ -456,6 +508,8 @@ def main():
                        help="Обработать все файлы заново (игнорировать существующие)")
     parser.add_argument("--skip-existing", action="store_true", default=True,
                        help="Пропускать уже обработанные файлы (default: True)")
+    parser.add_argument("--models-dir", type=str, default='src/models',
+                       help="Директория для кэширования моделей (default: src/models)")
     
     args = parser.parse_args()
     
@@ -476,6 +530,7 @@ def main():
     print(f"🎯 Сохранение пропорций: {'Да' if args.preserve_aspect else 'Нет'}")
     print(f"⏭️  Пропуск существующих: {'Да' if args.skip_existing else 'Нет'}")
     print(f"🔧 Устройство: {args.device}")
+    print(f"📂 Директория моделей: {args.models_dir}")
     
     preprocessor = YOLOPartPreprocessor(
         target_size=args.size,
@@ -484,7 +539,8 @@ def main():
         iou_threshold=args.iou,
         preserve_aspect_ratio=args.preserve_aspect,
         device=args.device,
-        skip_existing=args.skip_existing
+        skip_existing=args.skip_existing,
+        models_dir=args.models_dir
     )
     
     start_time = time.time()
@@ -496,7 +552,7 @@ def main():
     total_time = time.time() - start_time
     
     print("\n" + "=" * 70)
-    print("🏁 РЕЗУЛЬТАТЫ ОБРАБОТКИ")
+    print(" РЕЗУЛЬТАТЫ ОБРАБОТКИ")
     print("=" * 70)
     print(f"✅ Успешно обработано: {stats['successful']}")
     print(f"❌ Ошибок: {stats['failed']}")
@@ -527,10 +583,9 @@ def main():
     
     # Рекомендации
     if args.size < 256:
-        print("\n💡 РЕКОМЕНДАЦИИ:")
+        print("\n РЕКОМЕНДАЦИИ:")
         print("   ⚠️  Рекомендуется использовать размер ≥ 384 для сельхоз-запчастей")
         print("   🎯 384×384 - оптимальный баланс качество/производительность")
-        print("   📈 512×512 - более высокое качество/ниже производительность из-за нагрузки на CUDA")
     
     return 0
 
