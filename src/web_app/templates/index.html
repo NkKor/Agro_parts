@@ -2,27 +2,195 @@
 <html lang="ru">
 <head>
   <meta charset="utf-8">
-  <title>Search demo — Parts Retrieval</title>
+  <title>Поиск деталей по фото</title>
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <!-- Tailwind CDN (Play) -->
+  <!-- Tailwind CSS -->
   <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    .file-upload {
+      border: 2px dashed #cbd5e1;
+      transition: all 0.3s;
+    }
+    .file-upload:hover {
+      border-color: #3b82f6;
+      background-color: #f8fafc;
+    }
+    .file-upload.dragover {
+      border-color: #3b82f6;
+      background-color: #eff6ff;
+    }
+  </style>
 </head>
-<body class="bg-gray-100">
+<body class="bg-gray-100 min-h-screen">
   <div class="max-w-4xl mx-auto p-6">
-    <h1 class="text-3xl font-semibold mb-4">Поиск детали по фото</h1>
-    <p class="mb-4 text-gray-600">Загрузи до 3 фото сломанной детали (разные ракурсы). Нажми "Найти" — сервис вернёт 5 наиболее похожих деталей.</p>
+    <!-- Header -->
+    <div class="text-center mb-8">
+      <h1 class="text-3xl font-bold text-gray-800 mb-2">🚜 Поиск сельхоз-деталей по фото</h1>
+      <p class="text-gray-600">Загрузите до 3 фото детали в разных ракурсах для поиска похожих</p>
+    </div>
 
-    <form action="{{ url_for('search_route') }}" method="post" enctype="multipart/form-data" class="bg-white p-6 rounded shadow">
-      <label class="block mb-2 text-sm font-medium text-gray-700">Выбери фото (до 3)</label>
-      <input type="file" name="images" accept="image/*" multiple class="mb-4">
-      <div>
-        <button type="submit" class="px-4 py-2 bg-sky-600 text-white rounded">Найти</button>
+    <!-- Main Form -->
+    <div class="bg-white rounded-xl shadow-lg p-6 mb-6">
+      <form id="searchForm" action="{{ url_for('search_route') }}" method="post" enctype="multipart/form-data" class="space-y-6">
+        <!-- File Upload Area -->
+        <div class="space-y-4">
+          <label class="block text-sm font-medium text-gray-700">Выберите фото детали (до 3 файлов)</label>
+          
+          <div id="dropZone" class="file-upload rounded-lg p-8 text-center cursor-pointer">
+            <div class="flex flex-col items-center justify-center">
+              <svg class="w-12 h-12 text-gray-400 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path>
+              </svg>
+              <p class="text-gray-600 mb-2">Перетащите файлы сюда или нажмите для выбора</p>
+              <p class="text-sm text-gray-500">Поддерживаются JPG, JPEG, PNG</p>
+            </div>
+            <input type="file" id="fileInput" name="images" accept="image/*" multiple class="hidden" />
+          </div>
+
+          <!-- Selected Files Preview -->
+          <div id="filePreview" class="hidden">
+            <h3 class="text-sm font-medium text-gray-700 mb-2">Выбранные файлы:</h3>
+            <div id="previewList" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3"></div>
+          </div>
+        </div>
+
+        <!-- Submit Button -->
+        <div class="flex justify-center">
+          <button type="submit" id="searchButton" disabled class="px-6 py-3 bg-blue-600 text-white font-medium rounded-lg shadow-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors">
+            <span id="buttonText">Найти похожие детали</span>
+            <span id="buttonLoading" class="hidden flex items-center">
+              <svg class="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+              </svg>
+              Поиск...
+            </span>
+          </button>
+        </div>
+      </form>
+    </div>
+
+    <!-- Info Section -->
+    <div class="bg-blue-50 border border-blue-200 rounded-lg p-4">
+      <div class="flex">
+        <div class="flex-shrink-0">
+          <svg class="h-5 w-5 text-blue-400" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+            <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clip-rule="evenodd" />
+          </svg>
+        </div>
+        <div class="ml-3">
+          <h3 class="text-sm font-medium text-blue-800">Как это работает</h3>
+          <div class="mt-2 text-sm text-blue-700">
+            <ul class="list-disc list-inside space-y-1">
+              <li>Загрузите до 3 фото детали в разных ракурсах</li>
+              <li>Система извлечет эмбеддинги и найдет 5 самых похожих деталей</li>
+              <li>Результаты отображаются с указанием степени похожести в процентах</li>
+            </ul>
+          </div>
+        </div>
       </div>
-    </form>
-
-    <div class="mt-6 text-sm text-gray-500">
-      <p>Примечание: демо использует centroids + per-image rerank. Убедись, что ты предварительно запустил оффлайн-пайплайн (preprocess → extract_embeddings → build_centroids → build_index).</p>
     </div>
   </div>
+
+  <script>
+    const dropZone = document.getElementById('dropZone');
+    const fileInput = document.getElementById('fileInput');
+    const filePreview = document.getElementById('filePreview');
+    const previewList = document.getElementById('previewList');
+    const searchButton = document.getElementById('searchButton');
+    const buttonText = document.getElementById('buttonText');
+    const buttonLoading = document.getElementById('buttonLoading');
+    const searchForm = document.getElementById('searchForm');
+
+    // Click to select files
+    dropZone.addEventListener('click', () => {
+      fileInput.click();
+    });
+
+    // Drag and drop events
+    ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+      dropZone.addEventListener(eventName, preventDefaults, false);
+    });
+
+    function preventDefaults(e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+
+    ['dragenter', 'dragover'].forEach(eventName => {
+      dropZone.addEventListener(eventName, highlight, false);
+    });
+
+    ['dragleave', 'drop'].forEach(eventName => {
+      dropZone.addEventListener(eventName, unhighlight, false);
+    });
+
+    function highlight() {
+      dropZone.classList.add('dragover');
+    }
+
+    function unhighlight() {
+      dropZone.classList.remove('dragover');
+    }
+
+    // Handle dropped files
+    dropZone.addEventListener('drop', handleDrop, false);
+
+    function handleDrop(e) {
+      const dt = e.dataTransfer;
+      const files = dt.files;
+      handleFiles(files);
+    }
+
+    // Handle selected files
+    fileInput.addEventListener('change', function() {
+      handleFiles(this.files);
+    });
+
+    function handleFiles(files) {
+      if (files.length === 0) return;
+
+      // Limit to 3 files
+      const fileArray = Array.from(files).slice(0, 3);
+      
+      // Clear previous previews
+      previewList.innerHTML = '';
+      
+      // Show preview section
+      filePreview.classList.remove('hidden');
+      
+      // Add file previews
+      fileArray.forEach(file => {
+        if (file.type.startsWith('image/')) {
+          const reader = new FileReader();
+          reader.onload = function(e) {
+            const div = document.createElement('div');
+            div.className = 'relative';
+            div.innerHTML = `
+              <div class="bg-gray-100 rounded-lg overflow-hidden">
+                <img src="${e.target.result}" alt="${file.name}" class="w-full h-32 object-cover">
+                <div class="p-2 bg-white bg-opacity-80">
+                  <p class="text-xs font-medium text-gray-700 truncate">${file.name}</p>
+                  <p class="text-xs text-gray-500">${(file.size / 1024 / 1024).toFixed(2)} MB</p>
+                </div>
+              </div>
+            `;
+            previewList.appendChild(div);
+          };
+          reader.readAsDataURL(file);
+        }
+      });
+
+      // Enable search button
+      searchButton.disabled = false;
+    }
+
+    // Form submission with loading state
+    searchForm.addEventListener('submit', function() {
+      buttonText.classList.add('hidden');
+      buttonLoading.classList.remove('hidden');
+      searchButton.disabled = true;
+    });
+  </script>
 </body>
 </html>

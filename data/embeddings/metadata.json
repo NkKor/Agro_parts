@@ -1,6 +1,11 @@
 {
-  "updated_at": "2025-09-10T18:53:28.125360",
-  "total_embeddings": 43348,
+  "created_at": "2025-09-10T19:47:06.669714",
+  "total_images": 43348,
+  "total_parts": 2184,
   "embedding_dim": 2048,
-  "data_type": "float32"
+  "index_type_images": "Flat",
+  "index_type_centroids": "Flat",
+  "source_embeddings": "data\\embeddings",
+  "source_centroids": "data\\embeddings",
+  "processing_time": 4.992883205413818
 }

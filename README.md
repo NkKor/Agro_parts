@@ -2,10 +2,10 @@
 ### 1 - Препроцессинг датасета, детекция деталей на фото, центрирование кадра, приведение к единому размеру, при необходимости повышение контрастности
 
 1. Обычная обработка (пропуск существующих):
-python src/preprocess.py --src data/raw --dst data/processed --size 384
+python src/preprocess.py --src data/raw --dst data/processed --size 512
 
 2. Принудительная обработка всех файлов:
-python src/preprocess.py --src data/raw --dst data/processed --size 384 --force
+python src/preprocess.py --src data/raw --dst data/processed --size 512 --force
 
 3. Тестовая обработка новых файлов:
 python src/preprocess.py --src data/raw --dst data/processed --size 512 --test --limit 50
@@ -57,5 +57,12 @@ python src/build_index.py --embeddings data/embeddings --centroids data/centroid
 
 
 ### 3 - Поиск (тест / прод), веб приложение
+
+python src/web_app/app.py
+
+
+
+
+
 
 python src/search_prod.py --query user_input.jpg --topk 5
