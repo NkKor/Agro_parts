@@ -7,5 +7,8 @@
   "index_type_centroids": "Flat",
   "source_embeddings": "data\\embeddings",
   "source_centroids": "data\\embeddings",
-  "processing_time": 4.992883205413818
+  "processing_time": 4.992883205413818,
+  "updated_at": "2025-09-16T06:28:03.089433",
+  "total_embeddings": 1058109,
+  "data_type": "float32"
 }

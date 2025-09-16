@@ -1,9 +1,10 @@
 /.venv/
 .venv/
 /.venv/Lib/
-/data/raw
-/data/embeddings
-/data/indexes/image_index.faiss
-/data/test
-/data/processed
-.conda/
+/data/*
+data/centroids/part_names.npy
+data/centroids/per_part.npy
+data/embeddings/part_ids.npy
+data/indexes/centroid_index.faiss
+data/indexes/centroid_names.npy
+data/indexes/image_ids.npy

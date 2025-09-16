@@ -41,22 +41,27 @@ python src/build_index.py --embeddings data/embeddings --centroids data/centroid
 
 Конвертация старого формата
 python src/convert_embeddings.py --input data/embeddings.pkl --output data/embeddings
+
 Затем продолжаем с новым extract_embeddings.py
 python src/extract_embeddings.py --src data/processed --out data/embeddings
 
 #### При добавлении новых фото выполнить последовательно:
 
+Предобработка фото (обнаружение детали, центрирование, обрезка пустого фона, приведение к единому размеру)
 python src/preprocess.py --src data/raw --dst data/processed --size 512
+
 Извлечение эмбеддингов (инкрементально)
 python src/extract_embeddings.py --src data/processed --out data/embeddings
+
 Построение центроидов
 python src/build_centroids.py --embeddings data/embeddings --out data/centroids
+
 Построение индексов
 python src/build_index.py --embeddings data/embeddings --centroids data/centroids --out data/indexes
 
 
 
-### 3 - Поиск (тест / прод), веб приложение
+### 3 - Поиск (тест / прод), веб приложение ! ! ! ! ! ! ! ! В РАЗРАБОТКЕ    ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! 
 
 python src/web_app/app.py
 
