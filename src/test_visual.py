@@ -92,14 +92,14 @@ def main_cli():
     args = ap.parse_args()
 
     results = search_and_visualize(args.query, args.topk)
-    print("🔎 Результаты:", results)
+    print(" Результаты:", results)
 
 
 def main_test():
     """Тест прямо в VSCode (без аргументов)"""
     query = "data/12345/img1.jpg"  # пример
     results = search_and_visualize(query, topk=5)
-    print("🔎 Тестовые результаты:", results)
+    print(" Тестовые результаты:", results)
 
 
 if __name__ == "__main__":

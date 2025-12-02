@@ -36,6 +36,18 @@ import time
 import torch
 import os
 
+
+# --- Настройка путей ---
+current_file = Path(__file__).resolve()
+project_root = current_file.parent.parent
+utils_path = project_root / "utils"
+src_path = project_root / "src"
+
+# --- Настройка TORCH_HOME ---
+torch_home = project_root / 'data' / 'models'
+torch_home.mkdir(parents=True, exist_ok=True)
+os.environ['TORCH_HOME'] = str(torch_home)
+
 class YOLOPartPreprocessor:
     """Предобработчик изображений сельхоз-запчастей с YOLO"""
     
@@ -63,8 +75,8 @@ class YOLOPartPreprocessor:
         else:
             self.device = device
         
-        print(f"🔧 Используется устройство: {self.device}")
-        print(f"📂 Директория моделей: {self.models_dir}")
+        print(f" Используется устройство: {self.device}")
+        print(f" Директория моделей: {self.models_dir}")
         
         # Загрузка YOLO модели
         self.yolo_model = self._load_yolo_model(yolo_model)
@@ -85,25 +97,25 @@ class YOLOPartPreprocessor:
         
         # Если модель уже существует локально
         if local_model_path.exists():
-            print(f"📥 Используется локальная модель: {local_model_path}")
+            print(f" Используется локальная модель: {local_model_path}")
             return str(local_model_path)
         
         # Если это стандартная модель YOLO, скачиваем
         standard_models = ['yolov8n.pt', 'yolov8s.pt', 'yolov8m.pt', 'yolov8l.pt', 'yolov8x.pt']
         
         if model_name in standard_models:
-            print(f"📥 Скачивание модели {model_name} в {local_model_path}...")
+            print(f" Скачивание модели {model_name} в {local_model_path}...")
             try:
                 from ultralytics import YOLO
                 # Создаем временную модель для скачивания
                 temp_model = YOLO(model_name)
                 # Сохраняем модель локально
                 temp_model.model.save(str(local_model_path))
-                print(f"✅ Модель сохранена: {local_model_path}")
+                print(f" Модель сохранена: {local_model_path}")
                 return str(local_model_path)
             except Exception as e:
-                print(f"⚠️  Ошибка скачивания модели: {e}")
-                print("💡 Используется онлайн-загрузка...")
+                print(f"  Ошибка скачивания модели: {e}")
+                print(" Используется онлайн-загрузка...")
                 return model_name  # Вернем оригинальное имя для онлайн-загрузки
         else:
             # Для пользовательских моделей просто возвращаем имя
@@ -117,21 +129,21 @@ class YOLOPartPreprocessor:
             # Проверяем и скачиваем модель при необходимости
             local_model_path = self._download_model_if_needed(model_name)
             
-            print(f"🔄 Загрузка YOLO модели: {local_model_path}")
+            print(f" Загрузка YOLO модели: {local_model_path}")
             
             model = YOLO(local_model_path)
             # Установка устройства
             model.to(self.device)
             
-            print("✅ YOLO модель загружена успешно")
+            print(" YOLO модель загружена успешно")
             return model
             
         except ImportError:
-            print("❌ Ошибка: библиотека 'ultralytics' не установлена")
-            print("💡 Установите: pip install ultralytics")
+            print(" Ошибка: библиотека 'ultralytics' не установлена")
+            print(" Установите: pip install ultralytics")
             sys.exit(1)
         except Exception as e:
-            print(f"❌ Ошибка загрузки YOLO модели: {e}")
+            print(f" Ошибка загрузки YOLO модели: {e}")
             sys.exit(1)
     
     def read_image_safe(self, path: Path) -> Optional[np.ndarray]:
@@ -142,7 +154,7 @@ class YOLOPartPreprocessor:
                 img = cv.imdecode(file_bytes, cv.IMREAD_COLOR)
             return img
         except Exception as e:
-            print(f"❌ Ошибка чтения {path}: {e}")
+            print(f" Ошибка чтения {path}: {e}")
             return None
     
     def write_image_safe(self, path: Path, img: np.ndarray) -> bool:
@@ -156,7 +168,7 @@ class YOLOPartPreprocessor:
                 return True
             return False
         except Exception as e:
-            print(f"❌ Ошибка записи {path}: {e}")
+            print(f" Ошибка записи {path}: {e}")
             return False
     
     def detect_part_with_yolo(self, image: np.ndarray) -> Optional[Tuple[int, int, int, int]]:
@@ -206,7 +218,7 @@ class YOLOPartPreprocessor:
             return None
             
         except Exception as e:
-            print(f"⚠️  Ошибка YOLO детекции: {e}")
+            print(f"  Ошибка YOLO детекции: {e}")
             return None
     
     def enhance_image_quality(self, image: np.ndarray) -> np.ndarray:
@@ -378,11 +390,11 @@ class YOLOPartPreprocessor:
         """
         Обработка всего датасета с пропуском существующих файлов
         """
-        print(f"🔍 Обработка датасета с YOLO: {src_root} → {dst_root}")
-        print(f"📏 Целевой размер: {self.target_size}×{self.target_size}")
-        print(f"🎯 Сохранение пропорций: {'Да' if self.preserve_aspect_ratio else 'Нет'}")
-        print(f"⏭️  Пропуск существующих: {'Да' if self.skip_existing else 'Нет'}")
-        print(f"📂 Директория моделей: {self.models_dir}")
+        print(f" Обработка датасета с YOLO: {src_root} → {dst_root}")
+        print(f" Целевой размер: {self.target_size}×{self.target_size}")
+        print(f" Сохранение пропорций: {'Да' if self.preserve_aspect_ratio else 'Нет'}")
+        print(f" >Пропуск существующих: {'Да' if self.skip_existing else 'Нет'}")
+        print(f" Директория моделей: {self.models_dir}")
         
         # Получение списка изображений для обработки
         all_images = list(src_root.rglob("*"))
@@ -392,11 +404,11 @@ class YOLOPartPreprocessor:
         pending_images = self.get_pending_images(src_root, dst_root)
         pending_count = len(pending_images)
         
-        print(f"📊 Всего изображений: {total_images}")
-        print(f"📋 Требуют обработки: {pending_count}")
+        print(f" Всего изображений: {total_images}")
+        print(f" Требуют обработки: {pending_count}")
         
         if self.skip_existing and pending_count == 0:
-            print("✅ Все изображения уже обработаны!")
+            print(" Все изображения уже обработаны!")
             return {
                 'processed': 0,
                 'successful': 0,
@@ -412,10 +424,10 @@ class YOLOPartPreprocessor:
         if test_mode:
             # Для теста берем из pending_images
             images_to_process = pending_images[:test_limit] if pending_images else all_images[:test_limit]
-            print(f"🧪 Тестовый режим: обработка первых {len(images_to_process)} изображений")
+            print(f" Тестовый режим: обработка первых {len(images_to_process)} изображений")
         else:
             images_to_process = pending_images if self.skip_existing else all_images
-            print(f"🚀 Обработка {len(images_to_process)} изображений")
+            print(f" Обработка {len(images_to_process)} изображений")
         
         # Статистика
         stats = {
@@ -521,16 +533,16 @@ def main():
     dst_path = Path(args.dst)
     
     if not src_path.exists():
-        print(f"❌ Исходная директория не найдена: {src_path}")
+        print(f" Исходная директория не найдена: {src_path}")
         return 1
     
-    print("🚜 Начало предобработки изображений сельхоз-запчастей (YOLO)")
+    print(" Начало предобработки изображений сельхоз-запчастей (YOLO)")
     print("=" * 70)
-    print(f"📏 Размер изображений: {args.size}×{args.size}")
-    print(f"🎯 Сохранение пропорций: {'Да' if args.preserve_aspect else 'Нет'}")
-    print(f"⏭️  Пропуск существующих: {'Да' if args.skip_existing else 'Нет'}")
-    print(f"🔧 Устройство: {args.device}")
-    print(f"📂 Директория моделей: {args.models_dir}")
+    print(f" Размер изображений: {args.size}×{args.size}")
+    print(f" Сохранение пропорций: {'Да' if args.preserve_aspect else 'Нет'}")
+    print(f" >Пропуск существующих: {'Да' if args.skip_existing else 'Нет'}")
+    print(f" Устройство: {args.device}")
+    print(f" Директория моделей: {args.models_dir}")
     
     preprocessor = YOLOPartPreprocessor(
         target_size=args.size,
@@ -551,41 +563,39 @@ def main():
     )
     total_time = time.time() - start_time
     
-    print("\n" + "=" * 70)
     print(" РЕЗУЛЬТАТЫ ОБРАБОТКИ")
-    print("=" * 70)
-    print(f"✅ Успешно обработано: {stats['successful']}")
-    print(f"❌ Ошибок: {stats['failed']}")
+    print(f" Успешно обработано: {stats['successful']}")
+    print(f" Ошибок: {stats['failed']}")
     print(f"   - Ошибки чтения: {stats['read_errors']}")
     print(f"   - Ошибки записи: {stats['save_errors']}")
-    print(f"🎯 Успешная детекция YOLO: {stats['detection_success']}")
+    print(f" Успешная детекция YOLO: {stats['detection_success']}")
     if args.skip_existing:
-        print(f"⏭️  Пропущено существующих: {stats['skipped']}")
-    print(f"📊 Всего обработано: {stats['processed']}")
+        print(f"  >Пропущено существующих: {stats['skipped']}")
+    print(f" Всего обработано: {stats['processed']}")
     
     if stats['processed'] > 0:
         success_rate = stats['successful'] / stats['processed'] * 100
         detection_rate = stats['detection_success'] / stats['processed'] * 100
-        print(f"📈 Процент успеха: {success_rate:.1f}%")
-        print(f"🎯 Процент детекции: {detection_rate:.1f}%")
+        print(f" Процент успеха: {success_rate:.1f}%")
+        print(f" Процент детекции: {detection_rate:.1f}%")
         
         if stats['processed'] > 0:
             avg_time = stats['total_processing_time'] / stats['processed']
-            print(f"⏱️  Среднее время на изображение: {avg_time:.2f} сек")
+            print(f"  Среднее время на изображение: {avg_time:.2f} сек")
     
-    print(f"⏱️  Общее время обработки: {total_time:.2f} сек")
+    print(f"  Общее время обработки: {total_time:.2f} сек")
     
     if stats['successful'] > 0:
         images_per_second = stats['successful'] / total_time if total_time > 0 else 0
-        print(f"⚡ Производительность: {images_per_second:.2f} изображений/сек")
+        print(f" Производительность: {images_per_second:.2f} изображений/сек")
     
-    print(f"\n📁 Результаты сохранены в: {dst_path}")
+    print(f"\n Результаты сохранены в: {dst_path}")
     
     # Рекомендации
     if args.size < 256:
         print("\n РЕКОМЕНДАЦИИ:")
-        print("   ⚠️  Рекомендуется использовать размер ≥ 384 для сельхоз-запчастей")
-        print("   🎯 384×384 - оптимальный баланс качество/производительность")
+        print("     Рекомендуется использовать размер ≥ 384 для сельхоз-запчастей")
+        print("    384×384 - оптимальный баланс качество/производительность")
     
     return 0
 

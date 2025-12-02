@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 Извлечение эмбеддингов в формате двух .npy файлов
 С поддержкой инкрементального обновления и оптимизации размера
@@ -15,22 +14,36 @@ import json
 import time
 from datetime import datetime
 import sys
+import hashlib
 
-# Импорты с правильными путями
+# --- Настройка путей ---
+current_file = Path(__file__).resolve()
+project_root = current_file.parent.parent
+utils_path = project_root / "utils"
+src_path = project_root / "src"
+
+# --- Настройка TORCH_HOME ---
+torch_home = project_root / 'data' / 'models'
+torch_home.mkdir(parents=True, exist_ok=True)
+os.environ['TORCH_HOME'] = str(torch_home)
+
+# Добавляем пути в sys.path для корректных импортов
+sys.path.insert(0, str(project_root))
+sys.path.insert(0, str(utils_path))
+sys.path.insert(0, str(src_path))
+
+# --- Импорт модулей ---
 try:
-    # Пробуем стандартные пути
     from src.models.encoder import ResNet50Encoder
-    from src.utils_cv import find_largest_foreground_bbox, pad_bbox, center_square_crop, resize_high_quality
+    from utils.utils_cv import find_largest_foreground_bbox, pad_bbox, center_square_crop, resize_high_quality
     import utils.config as config
 except ImportError:
     try:
-        # Альтернативные пути
         from models.encoder import ResNet50Encoder
         from utils_cv import find_largest_foreground_bbox, pad_bbox, center_square_crop, resize_high_quality
         import config as config
     except ImportError:
         try:
-            # Еще один вариант
             sys.path.append(str(Path(__file__).parent))
             sys.path.append(str(Path(__file__).parent.parent))
             sys.path.append(str(Path(__file__).parent.parent / "utils"))
@@ -39,68 +52,42 @@ except ImportError:
             from utils_cv import find_largest_foreground_bbox, pad_bbox, center_square_crop, resize_high_quality
             import config as config
         except ImportError as e:
-            print(f"❌ Ошибка импорта: {e}")
-            print("💡 Проверьте структуру проекта:")
-            print("   src/")
-            print("   ├── models/encoder.py")
-            print("   ├── utils_cv.py")
+            print(f" Ошибка импорта: {e}")
+            print(" Проверьте структуру проекта:")
+            print("   project/")
+            print("   ├── src/")
+            print("   │   ├── models/encoder.py")
+            print("   │   └── utils_cv.py")
             print("   utils/")
             print("   └── config.py")
             sys.exit(1)
 
-# Трансформации
+# --- Трансформации ---
 transform = T.Compose([
     T.ToTensor(),
     T.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
 ])
 
 def get_device(device_str: str = "auto") -> str:
-    """Определение устройства для вычислений с проверкой доступности"""
+    """Определение устройства для вычислений"""
     if device_str == "auto":
-        # Проверяем CUDA
         if torch.cuda.is_available():
             try:
-                # Дополнительная проверка, что PyTorch скомпилирован с CUDA
                 x = torch.zeros(1).cuda()
-                print("✅ CUDA доступна и поддерживается")
+                del x
+                print(" CUDA доступна и поддерживается")
                 return "cuda"
             except Exception as e:
-                print(f"⚠️  CUDA доступна, но PyTorch не скомпилирован с CUDA: {e}")
-                print("💡 Используется CPU")
-        # Проверяем MPS (Apple Silicon)
-        elif torch.backends.mps.is_available():
-            print("✅ Используется MPS (Apple Silicon)")
+                print(f"  CUDA доступна, но PyTorch не скомпилирован с CUDA: {e}")
+                print(" Используется CPU")
+        elif torch.backends.mps.is_available() and torch.backends.mps.is_built():
+            print(" Используется MPS (Apple Silicon)")
             return "mps"
         else:
-            print("💡 Используется CPU")
+            print(" Используется CPU")
             return "cpu"
-    else:
-        # Явное указание устройства
-        if device_str == "cuda":
-            if torch.cuda.is_available():
-                try:
-                    x = torch.zeros(1).cuda()
-                    print("✅ Используется CUDA")
-                    return "cuda"
-                except Exception as e:
-                    print(f"❌ CUDA недоступна: {e}")
-                    print("💡 Переключаемся на CPU")
-                    return "cpu"
-            else:
-                print("❌ CUDA недоступна")
-                print("💡 Переключаемся на CPU")
-                return "cpu"
-        elif device_str == "mps":
-            if torch.backends.mps.is_available():
-                print("✅ Используется MPS")
-                return "mps"
-            else:
-                print("❌ MPS недоступна")
-                print("💡 Переключаемся на CPU")
-                return "cpu"
-        else:
-            print(f"💡 Используется {device_str}")
-            return device_str
+    print(f" Используется {device_str}")
+    return device_str
 
 @torch.no_grad()
 def embed_image(img_path, model, device):
@@ -119,27 +106,27 @@ def embed_image(img_path, model, device):
         if bbox is not None:
             bbox = pad_bbox(bbox, img_bgr.shape, pad_ratio=getattr(config, 'PAD_RATIO', 0.1))
             x1, y1, x2, y2 = bbox
-            img_bgr = img_bgr[y1:y2, x1:x2]
+            crop = img_bgr[y1:y2, x1:x2]
         else:
-            img_bgr = center_square_crop(img_bgr)
+            crop = center_square_crop(img_bgr)
         
-        img_bgr = resize_high_quality(img_bgr, getattr(config, 'TARGET_SIZE', 384))
+        crop = resize_high_quality(crop, getattr(config, 'TARGET_SIZE', 384))
         
         # Конвертация в RGB и применение трансформаций
         import torchvision.transforms.functional as F
-        img_rgb = cv.cvtColor(img_bgr, cv.COLOR_BGR2RGB)
+        img_rgb = cv.cvtColor(crop, cv.COLOR_BGR2RGB)
         pil = F.to_pil_image(img_rgb)
-        x = transform(pil).unsqueeze(0)
-        
-        # Перемещаем на устройство
-        x = x.to(device)
+        x = transform(pil).unsqueeze(0).to(device)
         
         # Извлечение эмбеддинга
-        emb = model(x).cpu().numpy()[0]  # (2048,)
-        return emb.astype(np.float32)
+        emb = model(x).cpu().numpy()
+        # ensure float32 и нормализация
+        emb = emb.astype('float32')
+        emb = emb / (np.linalg.norm(emb, axis=1, keepdims=True) + 1e-12)
+        return emb[0]  # Возвращаем вектор (2048,)
         
     except Exception as e:
-        print(f"❌ Ошибка обработки изображения {img_path}: {e}")
+        print(f" Ошибка обработки изображения {img_path}: {e}")
         return None
 
 def load_existing_data(embeddings_dir: Path):
@@ -150,7 +137,7 @@ def load_existing_data(embeddings_dir: Path):
     
     if emb_file.exists() and ids_file.exists():
         try:
-            embeddings = np.load(emb_file)
+            embeddings = np.load(emb_file).astype(np.float32)
             part_ids = np.load(ids_file, allow_pickle=True)
             
             # Загрузка метаданных
@@ -159,14 +146,76 @@ def load_existing_data(embeddings_dir: Path):
                 with open(meta_file, 'r') as f:
                     metadata = json.load(f)
             
-            print(f"✅ Загружено существующих данных: {len(embeddings)} эмбеддингов")
+            print(f" Загружено существующих данных: {len(embeddings)} эмбеддингов")
             return embeddings, part_ids, metadata, set(part_ids.tolist())
         except Exception as e:
-            print(f"⚠️  Ошибка загрузки существующих данных: {e}")
+            print(f"  Ошибка загрузки существующих данных: {e}")
+            print("  Рекомендуется выполнить принудительную перезапись с --force")
             return None, None, {}, set()
     else:
-        print("🆕 Создание новых файлов...")
+        print(" Создание новых файлов...")
         return None, None, {}, set()
+
+def remove_existing_files(embeddings_dir: Path):
+    """Удаление существующих файлов при --force режиме"""
+    emb_file = embeddings_dir / "per_image.npy"
+    ids_file = embeddings_dir / "part_ids.npy"
+    meta_file = embeddings_dir / "metadata.json"
+    backup_files = []
+    
+    # Создаем бэкапы
+    if emb_file.exists():
+        emb_backup = embeddings_dir / "per_image.npy.backup"
+        if emb_backup.exists():
+            try:
+                emb_backup.unlink()
+                print(f"  Удален старый бэкап {emb_backup.name}")
+            except Exception as e:
+                print(f"  Ошибка удаления бэкапа {emb_backup.name}")
+
+        backup_path = embeddings_dir / "per_image.npy.backup"
+        try:
+            emb_file.rename(backup_path)
+            backup_files.append(backup_path)
+            print(f" Создан бэкап: {backup_path.name}")
+        except Exception as e:
+            print(f"  Ошибка создания бэкапа {emb_file.name}: {e}")
+    
+    if ids_file.exists():
+        ids_backup = embeddings_dir / "part_ids.npy.backup"
+        if ids_backup.exists():
+            try:
+                ids_backup.unlink()
+                print(f"  Удален старый бэкап {ids_backup.name}")
+            except Exception as e:
+                print(f"  Ошибка удаления бэкапа {ids_backup.name}")
+
+        backup_path = embeddings_dir / "part_ids.npy.backup"
+        try:
+            ids_file.rename(backup_path)
+            backup_files.append(backup_path)
+            print(f" Создан бэкап: {backup_path.name}")
+        except Exception as e:
+            print(f"  Ошибка создания бэкапа {ids_file.name}: {e}")
+    
+    if meta_file.exists():
+        meta_backup = embeddings_dir / "metadata.json.backup"
+        if meta_backup.exists():
+            try:
+                meta_backup.unlink()
+                print(f"  Удален старый бэкап {meta_backup.name}")
+            except Exception as e:
+                print(f"  Ошибка удаления бэкапа {meta_backup.name}")
+
+        backup_path = embeddings_dir / "metadata.json.backup"
+        try:
+            meta_file.rename(backup_path)
+            backup_files.append(backup_path)
+            print(f" Создан бэкап: {backup_path.name}")
+        except Exception as e:
+            print(f"  Ошибка создания бэкапа {meta_file.name}: {e}")
+    
+    return backup_files
 
 def save_embeddings(embeddings_dir: Path, embeddings: np.ndarray, part_ids: np.ndarray, metadata: dict):
     """Сохранение эмбеддингов с оптимизацией размера"""
@@ -200,30 +249,45 @@ def save_embeddings(embeddings_dir: Path, embeddings: np.ndarray, part_ids: np.n
         json.dump(metadata, f, indent=2, ensure_ascii=False)
     
     size_mb = (emb_file.stat().st_size + ids_file.stat().st_size) / (1024 * 1024)
-    print(f"✅ Сохранено {len(embeddings_opt)} эмбеддингов ({size_mb:.1f} MB)")
+    print(f" Сохранено {len(embeddings_opt)} эмбеддингов ({size_mb:.1f} MB)")
 
-def extract_embeddings(src: Path, out: Path, update: bool = True):
+def extract_embeddings(src: Path, out: Path, update: bool = True, force: bool = False):
     """Основная функция извлечения эмбеддингов"""
-    print(f"🔍 Извлечение эмбеддингов")
-    print(f"📁 Исходная директория: {src}")
-    print(f"📂 Директория для эмбеддингов: {out}")
-    print(f"🔄 Режим: {'Инкрементальное обновление' if update else 'Полная перезапись'}")
+    print(f" Извлечение эмбеддингов")
+    print(f" Исходная директория: {src}")
+    print(f" Директория для эмбеддингов: {out}")
+    print(f" Режим: {'Инкрементальное обновление' if update and not force else 'Полная перезапись'}")
     
     start_time = time.time()
+    
+    # Обработка --force режима
+    if force:
+        print("  Принудительная перезапись - удаление существующих файлов...")
+        backup_files = remove_existing_files(out)
+        if backup_files:
+            print(f" Созданы бэкапы: {len(backup_files)} файлов")
+        # Устанавливаем update=False для полной перезаписи
+        update = False
     
     # Загрузка существующих данных (если update=True)
     existing_embs, existing_ids, metadata, seen_files = None, None, {}, set()
     if update:
         existing_embs, existing_ids, metadata, seen_files = load_existing_data(out)
+        
+        # Если загрузка не удалась из-за ошибок, предлагаем --force
+        if existing_embs is None and (out / "per_image.npy").exists():
+            print(" Невозможно выполнить инкрементальное обновление из-за ошибок в существующих файлах")
+            print(" Выполните команду с --force для принудительной перезаписи:")
+            print(f"   python {Path(__file__).name} --src {src} --out {out} --force")
+            return False
     
     # Загрузка модели
     device = get_device(getattr(config, 'DEVICE', 'auto'))
-    print(f"🔧 Используется устройство: {device}")
+    print(f" Используется устройство: {device}")
     
     model = ResNet50Encoder(out_dim=2048, pretrained=True)
-    model = model.to(device)
-    model.eval()
-    print("✅ Модель загружена")
+    model = model.to(device).eval()
+    print(" Модель загружена")
     
     # Сбор списка новых изображений
     all_images = []
@@ -237,14 +301,14 @@ def extract_embeddings(src: Path, out: Path, update: bool = True):
                 continue
             all_images.append((img_path, part_id, rel_id))
     
-    print(f"📊 Найдено изображений для обработки: {len(all_images)}")
+    print(f" Найдено изображений для обработки: {len(all_images)}")
     
     if len(all_images) == 0:
         if update:
-            print("✅ Новых изображений нет")
+            print(" Новых изображений нет")
         else:
-            print("❌ Нет изображений для обработки")
-        return
+            print(" Нет изображений для обработки")
+        return True
     
     # Извлечение эмбеддингов
     new_embeddings = []
@@ -252,7 +316,7 @@ def extract_embeddings(src: Path, out: Path, update: bool = True):
     error_count = 0
     success_count = 0
     
-    print("🔄 Извлечение эмбеддингов...")
+    print(" Извлечение эмбеддингов...")
     pbar = tqdm(all_images, desc="Обработка изображений")
     
     for img_path, part_id, rel_id in pbar:
@@ -264,7 +328,7 @@ def extract_embeddings(src: Path, out: Path, update: bool = True):
                 continue
             
             new_embeddings.append(emb)
-            new_ids.append(rel_id)  # Сохраняем полный ID
+            new_ids.append(rel_id)  # Сохраняем part_id/image_name.jpg
             success_count += 1
             
             pbar.set_postfix({
@@ -273,45 +337,47 @@ def extract_embeddings(src: Path, out: Path, update: bool = True):
             })
             
         except Exception as e:
-            print(f"❌ Ошибка обработки {img_path}: {e}")
+            print(f" Ошибка обработки {img_path}: {e}")
             error_count += 1
             continue
     
     if len(new_embeddings) == 0:
-        print("❌ Не удалось извлечь ни одного эмбеддинга")
-        return
+        print(" Не удалось извлечь ни одного эмбеддинга")
+        return False
     
     # Конвертация в numpy массивы
     new_embeddings = np.array(new_embeddings, dtype=np.float32)
     new_ids = np.array(new_ids, dtype=object)
     
-    print(f"✅ Успешно извлечено: {len(new_embeddings)} эмбеддингов")
+    print(f" Успешно извлечено: {len(new_embeddings)} эмбеддингов")
     if error_count > 0:
-        print(f"❌ Ошибок: {error_count}")
+        print(f" Ошибок: {error_count}")
     
     # Объединение с существующими данными
     if existing_embs is not None and existing_ids is not None:
         final_embs = np.concatenate([existing_embs, new_embeddings], axis=0)
         final_ids = np.concatenate([existing_ids, new_ids], axis=0)
-        print(f"📊 Всего эмбеддингов после объединения: {len(final_embs)}")
+        print(f" Всего эмбеддингов после объединения: {len(final_embs)}")
     else:
         final_embs = new_embeddings
         final_ids = new_ids
-        print(f"📊 Новых эмбеддингов: {len(final_embs)}")
+        print(f" Новых эмбеддингов: {len(final_embs)}")
     
     # Сохранение результатов
     save_embeddings(out, final_embs, final_ids, metadata)
     
     # Финальная статистика
     total_time = time.time() - start_time
-    print(f"\n🏁 РЕЗУЛЬТАТЫ")
-    print(f"✅ Успешно обработано: {success_count}")
-    print(f"❌ Ошибок: {error_count}")
-    print(f"📊 Всего: {success_count + error_count}")
+    print(f"\n РЕЗУЛЬТАТЫ")
+    print(f" Успешно обработано: {success_count}")
+    print(f" Ошибок: {error_count}")
+    print(f" Всего: {success_count + error_count}")
     if success_count > 0:
-        print(f"⏱️  Время обработки: {total_time:.2f} сек")
-        print(f"⚡ Производительность: {success_count/total_time:.2f} изображений/сек")
-    print(f"💾 Сохранено в: {out}")
+        print(f"  Время обработки: {total_time:.2f} сек")
+        print(f" Производительность: {success_count/total_time:.2f} изображений/сек")
+    print(f" Сохранено в: {out}")
+    
+    return True
 
 def main():
     parser = argparse.ArgumentParser(
@@ -333,7 +399,7 @@ def main():
     parser.add_argument("--update", action="store_true", default=True,
                        help="Инкрементальное обновление (по умолчанию)")
     parser.add_argument("--force", action="store_true",
-                       help="Полная перезапись (игнорировать существующие)")
+                       help="Полная перезапись (удалить существующие)")
     parser.add_argument("--device", type=str, default="auto",
                        help="Устройство: 'cpu', 'cuda', 'mps', 'auto' (по умолчанию)")
     
@@ -345,7 +411,7 @@ def main():
     
     # Проверка существования исходной директории
     if not args.src.exists():
-        print(f"❌ Исходная директория не найдена: {args.src}")
+        print(f" Исходная директория не найдена: {args.src}")
         return 1
     
     # Устанавливаем устройство из аргументов
@@ -353,14 +419,18 @@ def main():
         config.DEVICE = args.device
     
     try:
-        extract_embeddings(args.src, args.out, args.update)
-        print("\n🎉 Извлечение эмбеддингов завершено!")
-        return 0
+        success = extract_embeddings(args.src, args.out, args.update, args.force)
+        if success:
+            print("\n Извлечение эмбеддингов завершено!")
+            return 0
+        else:
+            print("\n Ошибка извлечения эмбеддингов")
+            return 1
     except KeyboardInterrupt:
-        print("\n⚠️  Обработка прервана пользователем")
+        print("\n  Обработка прервана пользователем")
         return 1
     except Exception as e:
-        print(f"\n❌ Критическая ошибка: {e}")
+        print(f"\n Критическая ошибка: {e}")
         import traceback
         traceback.print_exc()
         return 1

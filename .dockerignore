@@ -1,0 +1,37 @@
+# .dockerignore
+.git
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.coverage
+.pytest_cache
+pytest.ini
+README.md
+Dockerfile
+.dockerignore
+.gitignore
+.vscode
+.idea
+*.log
+logs/
+tmp_uploads/
+.env
+.DS_Store
+Thumbs.db
+
+# --- ИСКЛЮЧАЕМ БОЛЬШИЕ ПАПКИ С ДАННЫМИ ---
+# Эти папки будут монтироваться в контейнер из хоста или сетевого хранилища
+data/raw/
+data/processed/
+data/embeddings/ # Эта тоже может быть большой, если не нужна в образе
+#data/centroids
+data/indexes/
+tmp_uploads/
+
+
+# -------------------------------
+
+# Можно также исключить другие тяжелые директории, если они есть
+# large_datasets/
+# models/ # Если весит много и будет монтироваться отдельно

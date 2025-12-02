@@ -1,559 +1,380 @@
 # src/web_app/app.py
+"""
+Веб-приложение для поиска сельхоз-деталей по фото
+
+"""
+
 import os
-import io
-from pathlib import Path
 import sys
-from flask import Flask, request, render_template, redirect, url_for, send_from_directory, jsonify
-import cv2 as cv
+from pathlib import Path
+import logging
+import json
+import time
 import numpy as np
+import cv2 as cv
 import torch
 import torchvision.transforms as T
-import faiss
+from flask import Flask, request, render_template, redirect, url_for, send_from_directory, send_file, jsonify
 from werkzeug.utils import secure_filename
+from datetime import datetime
 
-# Добавляем пути к проекту для корректных импортов
-project_root = Path(__file__).parent.parent.parent
+# --- Настройка путей ---
+# Определяем корень проекта
+current_file = Path(__file__).resolve()
+project_root = current_file.parent.parent.parent
 utils_path = project_root / "utils"
+src_path = project_root / "src"
+
+# Добавляем пути в sys.path
 sys.path.insert(0, str(project_root))
 sys.path.insert(0, str(utils_path))
+sys.path.insert(0, str(src_path))
 
-# Импорт наших модулей с правильными путями
+# --- Создание директорий для логов ---
+logs_dir = project_root / "logs"
+logs_dir.mkdir(parents=True, exist_ok=True)
+
+# --- Настройка TORCH_HOME ---
+# Правильный путь к моделям относительно корня проекта
+torch_home = project_root / 'data' / 'models'
+torch_home.mkdir(parents=True, exist_ok=True)
+os.environ['TORCH_HOME'] = str(torch_home)
+
+# --- Настройка логирования ---
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s %(name)-12s %(levelname)-8s %(message)s',
+    datefmt='%m-%d %H:%M',
+    handlers=[
+        logging.FileHandler(logs_dir / 'web_app.log'),
+        logging.StreamHandler()
+    ]
+)
+logger = logging.getLogger(__name__)
+
+# --- Импорт модулей ---
 try:
-    # Пробуем разные варианты импорта
     import utils.config as config
-    from utils.utils_cv import find_largest_foreground_bbox, pad_bbox, center_square_crop, resize_high_quality
-    from src.models.encoder import ResNet50Encoder
-    print("✅ Импорты загружены успешно (вариант 1)")
-except ImportError:
-    try:
-        # Альтернативные пути
-        import config as config
-        from utils_cv import find_largest_foreground_bbox, pad_bbox, center_square_crop, resize_high_quality
-        from models.encoder import ResNet50Encoder
-        print("✅ Импорты загружены успешно (вариант 2)")
-    except ImportError:
-        try:
-            # Еще один вариант
-            sys.path.append(str(Path(__file__).parent.parent))
-            import utils.config as config
-            from utils.utils_cv import find_largest_foreground_bbox, pad_bbox, center_square_crop, resize_high_quality
-            from src.models.encoder import ResNet50Encoder
-            print("✅ Импорты загружены успешно (вариант 3)")
-        except ImportError as e:
-            print(f"❌ Ошибка импорта: {e}")
-            print("💡 Проверьте структуру проекта:")
-            print("   project/")
-            print("   ├── src/")
-            print("   │   ├── models/encoder.py")
-            print("   │   └── web_app/app.py")
-            print("   └── utils/")
-            print("       ├── config.py")
-            print("       └── utils_cv.py")
-            sys.exit(1)
+    # from utils.utils_cv import find_largest_foreground_bbox, pad_bbox, center_square_crop, resize_high_quality
+    # from src.models.encoder import ResNet50Encoder # Не используется напрямую в app.py, но нужна для SearchEngine
+    from src.search.searcher import SearchEngine
+except ImportError as e:
+    logger.error(f" Ошибка импорта: {e}")
+    # Убираем sys.exit(1), чтобы дать шанс отработать глобальной логике Gunicorn
+    # sys.exit(1)
 
-# Путь для временных загрузок
-TMP_DIR = Path("tmp_uploads")
-TMP_DIR.mkdir(exist_ok=True)
 
+# Правильные пути к данным (относительные -> абсолютные относительно project_root)
+TEMP_DIR =           project_root / getattr(config, 'TEMP_DIR',        Path('data/uploads'))
+DATA_PROCESSED_DIR = project_root / getattr(config, 'PROC_DIR',        Path('data/processed'))
+EMBED_DIR =          project_root / getattr(config, 'EMB_DIR',         Path('data/embeddings'))
+
+# Приводим к абсолютным путям для работы
+TEMP_DIR = TEMP_DIR.resolve()
+DATA_PROCESSED_DIR = DATA_PROCESSED_DIR.resolve()
+EMBED_DIR = EMBED_DIR.resolve()
+
+# Создаем директории если не существуют
+TEMP_DIR.mkdir(parents=True, exist_ok=True)
+DATA_PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
+EMBED_DIR.mkdir(parents=True, exist_ok=True)
+
+logger.info(f" project_root: {project_root}")
+logger.info(f" TEMP_DIR: {TEMP_DIR}")
+logger.info(f" DATA_PROCESSED_DIR: {DATA_PROCESSED_DIR}")
+logger.info(f" EMBED_DIR: {EMBED_DIR}")
+logger.info(f" TEMP_DIR существует: {TEMP_DIR.exists()}")
+
+# --- Глобальные переменные ---
 ALLOWED_EXT = {".jpg", ".jpeg", ".png"}
+search_engine = None
 
-# Flask приложение
-app = Flask(__name__, 
-           template_folder='templates',
-           static_folder='static')
-app.config['MAX_CONTENT_LENGTH'] = 20 * 1024 * 1024  # 20 MB per request guard
+# --- Flask приложение ---
+app = Flask(__name__,
+           template_folder='templates')
+app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024  # 50MB
 
-# Глобальные переменные для модели и индексов
-model = None
-CENTROIDS = None
-CENTROID_IDS = None
-PERIMG = None
-PERIMG_IDS = None
-IDX_C = None
-IDX_X = None
-
-# трансформ для модели
+# --- Трансформации ---
 transform = T.Compose([
     T.ToTensor(),
     T.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
 ])
 
-def init_model_and_indexes():
-    """Инициализация модели и индексов при запуске"""
-    global model, CENTROIDS, CENTROID_IDS, PERIMG, PERIMG_IDS, IDX_C, IDX_X
-    
-    print("🔄 Загружаем модель и индексы...")
-    
-    # Определяем устройство
-    device = "cpu"
-    if torch.cuda.is_available():
-        try:
-            x = torch.zeros(1).cuda()
-            del x
-            device = "cuda"
-            print("✅ Используется CUDA")
-        except:
-            print("⚠️  CUDA доступна, но не поддерживается")
-    print(f"🔧 Устройство: {device}")
-    
-    # Загрузка модели
-    try:
-        model = ResNet50Encoder(out_dim=2048, pretrained=True).to(device).eval()
-        print("✅ Модель загружена")
-    except Exception as e:
-        print(f"❌ Ошибка загрузки модели: {e}")
-        return False
-    
-    # Проверка существования файлов
-    emb_dir = Path(getattr(config, 'EMB_DIR', 'data/embeddings'))
-    if not emb_dir.exists():
-        print(f"❌ Директория эмбеддингов не найдена: {emb_dir}")
-        return False
-    
-    # Проверяем разные возможные имена файлов
-    centroid_files = [
-        emb_dir / "per_part.npy",
-        emb_dir / "centroids.npy",
-        emb_dir / "centroid_vectors.npy"
-    ]
-    
-    centroid_id_files = [
-        emb_dir / "part_names.npy",
-        emb_dir / "centroid_ids.npy",
-        emb_dir / "centroid_names.npy"
-    ]
-    
-    perimg_files = [
-        emb_dir / "per_image.npy",
-        emb_dir / "embeddings.npy"
-    ]
-    
-    perimg_id_files = [
-        emb_dir / "part_ids.npy",
-        emb_dir / "image_ids.npy"
-    ]
-    
-    # Ищем существующие файлы
-    centroid_file = None
-    centroid_ids_file = None
-    perimg_file = None
-    perimg_ids_file = None
-    
-    for f in centroid_files:
-        if f.exists():
-            centroid_file = f
-            break
-    
-    for f in centroid_id_files:
-        if f.exists():
-            centroid_ids_file = f
-            break
-            
-    for f in perimg_files:
-        if f.exists():
-            perimg_file = f
-            break
-            
-    for f in perimg_id_files:
-        if f.exists():
-            perimg_ids_file = f
-            break
-    
-    # Проверяем, что все необходимые файлы найдены
-    missing_files = []
-    if not centroid_file:
-        missing_files.append("файл центроидов")
-    if not centroid_ids_file:
-        missing_files.append("файл ID центроидов")
-    if not perimg_file:
-        missing_files.append("файл изображений")
-    if not perimg_ids_file:
-        missing_files.append("файл ID изображений")
-    
-    if missing_files:
-        print("❌ Не найдены необходимые файлы:")
-        for f in missing_files:
-            print(f"   - {f}")
-        print("\n💡 Выполните команды:")
-        print("   python src/build_centroids.py --embeddings data/embeddings --out data/embeddings")
-        return False
-    
-    print(f"✅ Найдены файлы:")
-    print(f"   Центроиды: {centroid_file}")
-    print(f"   ID центроидов: {centroid_ids_file}")
-    print(f"   Изображения: {perimg_file}")
-    print(f"   ID изображений: {perimg_ids_file}")
-    
-    # Загрузка эмбеддингов и индексов
-    try:
-        CENTROIDS = np.load(centroid_file).astype(np.float32)
-        CENTROID_IDS = np.load(centroid_ids_file, allow_pickle=True)
-        PERIMG = np.load(perimg_file).astype(np.float32)
-        PERIMG_IDS = np.load(perimg_ids_file, allow_pickle=True)
-        
-        print(f"✅ Загружено центроидов: {len(CENTROIDS)}")
-        print(f"✅ Загружено изображений: {len(PERIMG)}")
-    except Exception as e:
-        print(f"❌ Ошибка загрузки эмбеддингов: {e}")
-        return False
-    
-    # Загрузка индексов FAISS (ищем в той же директории)
-    idx_files = [
-        emb_dir / "centroid_index.faiss",
-        emb_dir / "faiss_centroid.bin",
-        emb_dir / "centroids.index"
-    ]
-    
-    idx_img_files = [
-        emb_dir / "image_index.faiss",
-        emb_dir / "faiss_img.bin",
-        emb_dir / "images.index"
-    ]
-    
-    idx_c_file = None
-    idx_x_file = None
-    
-    for f in idx_files:
-        if f.exists():
-            idx_c_file = f
-            break
-    
-    for f in idx_img_files:
-        if f.exists():
-            idx_x_file = f
-            break
-    
-    if not idx_c_file:
-        print("❌ Индекс центроидов не найден")
-        print("💡 Выполните команду:")
-        print("   python src/build_index.py --embeddings data/embeddings --centroids data/embeddings --out data/embeddings")
-        return False
-    
-    try:
-        IDX_C = faiss.read_index(str(idx_c_file))
-        print("✅ Индекс центроидов загружен")
-        
-        if idx_x_file and idx_x_file.exists():
-            IDX_X = faiss.read_index(str(idx_x_file))
-            print("✅ Индекс изображений загружен")
+# --- Вспомогательные функции ---
+def get_device(device_str: str = "auto") -> str:
+    """Определение устройства для вычислений"""
+    if device_str == "auto":
+        if torch.cuda.is_available():
+            return "cuda"
+        elif torch.backends.mps.is_available() and torch.backends.mps.is_built():
+            return "mps"
         else:
-            IDX_X = None
-            print("⚠️  Индекс изображений не найден")
-            
-    except Exception as e:
-        print(f"❌ Ошибка загрузки индексов: {e}")
-        return False
-    
-    print("🎉 Все данные загружены успешно!")
-    return True
+            return "cpu"
+    return device_str
 
-def allowed_file(filename):
+def allowed_file(filename: str) -> bool:
+    """Проверка допустимого расширения файла"""
     return Path(filename).suffix.lower() in ALLOWED_EXT
 
-def preprocess_bgr_save(img_bgr):
-    """Используем ту же логику, что в оффлайн preprocess: ROI->pad->resize."""
+def sample_example_for_part(part_id: str) -> str:
+    """
+    Возвращает путь к первому файлу в data/processed/<part_id> для отображения.
+    Путь возвращается относительно DATA_PROCESSED_DIR.
+    """
     try:
-        bbox = find_largest_foreground_bbox(img_bgr, min_area_ratio=getattr(config, 'MIN_OBJ_AREA', 0.01))
-        if bbox is not None:
-            bbox = pad_bbox(bbox, img_bgr.shape, pad_ratio=getattr(config, 'PAD_RATIO', 0.1))
-            x1, y1, x2, y2 = bbox
-            crop = img_bgr[y1:y2, x1:x2]
-        else:
-            crop = center_square_crop(img_bgr)
-        out = resize_high_quality(crop, getattr(config, 'TARGET_SIZE', 384))
-        return out
-    except Exception as e:
-        print(f"⚠️  Ошибка предобработки: {e}")
-        # fallback на простую обрезку
-        try:
-            return center_square_crop(img_bgr)
-        except:
-            return img_bgr
-
-@torch.no_grad()
-def embed_from_bgr(img_bgr):
-    """Возвращает L2-нормированный эмбеддинг (1,D) numpy float32."""
-    try:
-        out = preprocess_bgr_save(img_bgr)
-        # convert BGR->RGB and to PIL via torchvision.functional or to tensor directly
-        import torchvision.transforms.functional as F
-        img_rgb = cv.cvtColor(out, cv.COLOR_BGR2RGB)
-        pil = F.to_pil_image(img_rgb)
-        x = transform(pil).unsqueeze(0).to(next(model.parameters()).device)
-        emb = model(x).cpu().numpy()
-        # ensure float32 и нормализация
-        emb = emb.astype('float32')
-        emb = emb / (np.linalg.norm(emb, axis=1, keepdims=True) + 1e-12)
-        return emb
-    except Exception as e:
-        print(f"❌ Ошибка извлечения эмбеддинга: {e}")
-        # Возвращаем нулевой вектор в случае ошибки
-        return np.zeros((1, 2048), dtype=np.float32)
-
-def search_by_emb(emb, topk=5, rerank_per_image=True, per_image_k=200):
-    """Поиск: сначала по центроидам, затем re-rank по per-image (max-aggregation)."""
-    try:
-        # Нормируем (на всякий случай)
-        emb = emb / (np.linalg.norm(emb, axis=1, keepdims=True) + 1e-12)
+        logger.debug(f" Поиск примера для части: {part_id}")
         
-        # быстрый поиск по центроидам (возвращаем per_image_k кандидатов для re-rank)
-        k_for_search = min(per_image_k, len(CENTROIDS)) if rerank_per_image else min(topk, len(CENTROIDS))
-        if k_for_search == 0:
-            return []
-            
-        D, I = IDX_C.search(emb.astype('float32'), k_for_search)
-        cand_part_ids = [CENTROID_IDS[i] for i in I[0]]
-
-        if not rerank_per_image:
-            # Конвертируем расстояния в проценты похожести
-            # Для L2 расстояний: чем меньше расстояние, тем больше похожесть
-            # Используем экспоненциальное преобразование для лучшего масштабирования
-            similarity_scores = []
-            for distance in D[0][:topk]:
-                # Преобразуем расстояние в процент похожести (0-100%)
-                # Используем обратную экспоненту: чем меньше расстояние, тем больше похожесть
-                similarity = max(0, min(100, 100 * np.exp(-distance/2)))
-                similarity_scores.append(similarity)
-            return list(zip(cand_part_ids[:topk], D[0][:topk].tolist(), similarity_scores))
-
-        # re-rank: возьмём все per-image векторы, принадлежащие candidate part ids
-        mask = np.isin(PERIMG_IDS, np.array(cand_part_ids, dtype=object))
-        if np.sum(mask) == 0:
-            # Если нет изображений, возвращаем центроиды с преобразованными расстояниями
-            similarity_scores = []
-            for distance in D[0][:topk]:
-                similarity = max(0, min(100, 100 * np.exp(-distance/2)))
-                similarity_scores.append(similarity)
-            return list(zip(cand_part_ids[:topk], D[0][:topk].tolist(), similarity_scores))
-            
-        cand_vectors = PERIMG[mask]            # [M, D]
-        cand_ids = PERIMG_IDS[mask]
-
-        # similarity = dot, потому что L2-нормированные
-        sims = (emb @ cand_vectors.T).ravel()
-        best = {}
-        for sim, pid in zip(sims, cand_ids):
-            prev = best.get(pid)
-            if prev is None or sim > prev:
-                best[pid] = float(sim)
-        ranked = sorted(best.items(), key=lambda x: x[1], reverse=True)[:topk]
+        if not DATA_PROCESSED_DIR.exists():
+            logger.error(f" Директория data/processed не найдена: {DATA_PROCESSED_DIR}")
+            return None
         
-        # Конвертируем cosine similarity в проценты ([-1,1] -> [0,100])
-        similarity_scores = []
-        for pid, cos_sim in ranked:
-            # Преобразуем cosine similarity в процент похожести
-            similarity_percent = max(0, min(100, (cos_sim + 1) * 50))
-            similarity_scores.append(similarity_percent)
-            
-        # Возвращаем [(part_id, distance, similarity_percent), ...]
-        return [(ranked[i][0], 1-ranked[i][1], similarity_scores[i]) for i in range(len(ranked))]
+        # Ищем директорию части
+        part_dir = DATA_PROCESSED_DIR / str(part_id)
         
-    except Exception as e:
-        print(f"❌ Ошибка поиска: {e}")
-        return []
-
-def sample_example_for_part(pid):
-    """Возвращает путь к первому файлу в processed/<pid> для показа."""
-    try:
-        processed_dir = Path(getattr(config, 'DATA_PROCESSED', 'data/processed'))
-        part_dir = processed_dir / str(pid)
+        # Если прямая директория не найдена, ищем рекурсивно
         if not part_dir.exists():
-            # Ищем в подкаталогах
-            for subdir in processed_dir.iterdir():
-                if subdir.is_dir() and subdir.name == str(pid):
-                    part_dir = subdir
+            for item in DATA_PROCESSED_DIR.iterdir():
+                if item.is_dir() and item.name == str(part_id):
+                    part_dir = item
                     break
             else:
+                logger.warning(f" Директория для части {part_id} не найдена")
                 return None
         
-        if part_dir.exists():
-            files = [p for p in part_dir.iterdir() if p.suffix.lower() in ALLOWED_EXT]
-            return str(files[0]) if files else None
-        return None
+        if part_dir.exists() and part_dir.is_dir():
+            # Ищем изображения
+            image_files = []
+            for ext in ['*.jpg', '*.jpeg', '*.png']:
+                image_files.extend(part_dir.glob(ext))
+            
+            if image_files:
+                first_image = image_files[0]
+                # Возвращаем относительный путь от DATA_PROCESSED_DIR
+                try:
+                    relative_path = first_image.relative_to(DATA_PROCESSED_DIR)
+                    path_str = str(relative_path).replace('\\', '/')
+                    logger.debug(f" Найден пример: {path_str}")
+                    return path_str
+                except ValueError:
+                    return f"{part_id}/{first_image.name}"
+        else:
+            logger.warning(f" Директория не существует или не является директорией: {part_dir}")
+            return None
+            
     except Exception as e:
-        print(f"⚠️  Ошибка поиска примера для {pid}: {e}")
+        logger.error(f" Ошибка поиска примера для {part_id}: {e}")
         return None
+
+def init_search_engine():
+    """Инициализация поисковой системы"""
+    global search_engine
+    if search_engine is None:
+        try:
+            logger.info(" Инициализация поисковой системы...")
+            search_engine = SearchEngine()
+            logger.info(" Поисковая система инициализирована")
+            return True
+        except Exception as e:
+            logger.error(f" Ошибка инициализации поисковой системы: {e}", exc_info=True)
+            search_engine = None
+            return False
+    return True
+
+# --- Инициализация модели на уровне модуля (для Gunicorn --preload) ---
+# Эта часть выполняется один раз в родительском процессе Gunicorn
+logger.info(" Gunicorn Preload: Инициализация поисковой системы на уровне модуля (WEB)...")
+if not init_search_engine():
+    logger.critical(" CRITICAL: Поисковая система WEB не была инициализирована.")
+# ----------------------------------------------------------------------
+
 
 # --- Маршруты ---
 @app.route("/", methods=["GET"])
 def index():
+    """Главная страница - форма поиска"""
     return render_template("index.html")
 
 @app.route("/search", methods=["POST"])
 def search_route():
+    """Маршрут для поиска по загруженным изображениям"""
     try:
-        # ожидаем up to 3 файлов из поля 'images'
+        logger.info(" Получен запрос на поиск")
+        
+        # 1. Получение файлов
         files = request.files.getlist("images")
-        # фильтруем пустые
         files = [f for f in files if f and f.filename and allowed_file(f.filename)]
+        
         if len(files) == 0:
-            return redirect(url_for("index"))
-
-        embeddings = []
+            logger.warning(" В запросе не найдены изображения")
+            return render_template("index.html", error="Не найдены изображения для поиска")
+        
+        logger.info(f" Получено {len(files)} изображений")
+        
+        # 2. Сохранение и чтение изображений
         saved_query_paths = []
-        for f in files[:3]:
-            filename = secure_filename(f.filename)
-            if not filename:
+        images = []
+        
+        # Убедимся, что TEMP_DIR существует
+        TEMP_DIR.mkdir(parents=True, exist_ok=True)
+        
+        for file_storage in files[:10]:  # Ограничение на 10 изображений
+            try:
+                filename = secure_filename(file_storage.filename)
+                if not filename:
+                    continue
+                
+                tmp_path = TEMP_DIR / filename
+                
+                # Сохраняем файл
+                file_storage.save(tmp_path)
+                
+                # Проверяем, что файл сохранился
+                if tmp_path.exists():
+                    saved_query_paths.append(str(tmp_path))
+                else:
+                    logger.error(f" Файл не сохранился: {tmp_path}")
+                    continue
+                
+                # Чтение изображения
+                img = cv.imread(str(tmp_path), cv.IMREAD_COLOR)
+                if img is not None:
+                    images.append(img)
+                else:
+                    logger.warning(f" Не удалось прочитать изображение {tmp_path}")
+                    
+            except Exception as e:
+                logger.warning(f" Ошибка обработки файла {file_storage.filename}: {e}")
                 continue
-            tmp_path = TMP_DIR / filename
-            f.save(tmp_path)
-            saved_query_paths.append(str(tmp_path))
-            # читаем и embed
-            img = cv.imread(str(tmp_path), cv.IMREAD_COLOR)
-            if img is None:
-                continue
-            emb = embed_from_bgr(img)   # (1, D)
-            embeddings.append(emb)
-
-        if len(embeddings) == 0:
-            return redirect(url_for("index"))
-
-        # усредняем эмбеддинги (по строкам)
-        stacked = np.vstack(embeddings)   # [k, D]
-        query_emb = np.mean(stacked, axis=0, keepdims=True)
-        query_emb = query_emb / (np.linalg.norm(query_emb, axis=1, keepdims=True) + 1e-12)
-
-        results = search_by_emb(query_emb, topk=5, rerank_per_image=True)
-
-        # подготовим отображаемые примеры
-        out_results = []
-        for i, result in enumerate(results):
-            if len(result) == 3:
-                pid, distance, similarity_percent = result
-            else:
-                # fallback для старого формата
-                pid, distance = result
-                # Преобразуем расстояние в процент похожести
-                similarity_percent = max(0, min(100, 100 * np.exp(-distance/2)))
+        
+        if len(images) == 0:
+            logger.error(" Не удалось обработать ни одно изображение")
+            return render_template("index.html", error="Не удалось обработать ни одно изображение")
+        
+        logger.info(f" Обработано {len(images)} изображений, сохранено путей: {len(saved_query_paths)}")
+        
+        # 3. Поиск с помощью SearchEngine
+        global search_engine # Убеждаемся, что используем глобальную переменную
+        if search_engine is None:
+            logger.error(" Поисковая система не инициализирована")
+            return render_template("index.html", error="Поисковая система не готова")
+        
+        # Поиск топ-5 результатов
+        results_dict = search_engine.predict_search(images, top_k=5)
+        similarities = results_dict.get('similarities', {})
+        
+        logger.info(f" Получены результаты поиска: {len(similarities)} элементов")
+        
+        # 4. Подготовка данных для шаблона
+        template_results = []
+        # Преобразование словаря в отсортированный список, если searcher вернул не отсортированный
+        if isinstance(similarities, dict):
+             # Сортируем по значению схожести (по убыванию)
+            sorted_similarities = sorted(similarities.items(), key=lambda item: item[1], reverse=True)
+        else:
+            sorted_similarities = similarities # Если уже список (part_id, similarity)
             
-            sample = sample_example_for_part(pid)
-            out_results.append({
-                "pid": str(pid), 
-                "distance": float(distance), 
-                "similarity": f"{similarity_percent:.1f}%",
-                "sample": sample,
-                "is_best": i == 0  # Помечаем лучший результат
+        for i, (part_id, similarity) in enumerate(sorted_similarities):
+            sample_path = sample_example_for_part(part_id)
+            template_results.append({
+                "pid": str(part_id),
+                "similarity": f"{similarity:.1f}%",
+                "sample": sample_path,
+                "is_best": i == 0,  # Первый в списке - лучший
+                "rank": i + 1
             })
-
-        # рендер
-        return render_template("results.html", query_imgs=saved_query_paths, results=out_results)
+        
+        # 5. Рендер шаблона с результатами
+        # Заменяем абсолютные пути на URL для отображения
+        query_img_urls = [
+            url_for('uploaded_file', filename=Path(p).name) 
+            for p in saved_query_paths
+        ]
+        
+        return render_template(
+            "index.html",
+            query_imgs=query_img_urls,
+            results=template_results,
+            search_performed=True
+        )
         
     except Exception as e:
-        print(f"❌ Ошибка в search_route: {e}")
-        import traceback
-        traceback.print_exc()
-        return redirect(url_for("index"))
+        logger.error(f" Критическая ошибка в search_route: {e}", exc_info=True)
+        return render_template("index.html", error="Внутренняя ошибка сервера")
 
-# служим временные загруженные файлы (для отображения)
-@app.route("/uploads/<path:filename>")
+@app.route("/data/uploads/<path:filename>")
 def uploaded_file(filename):
+    """Отдача временно загруженных файлов"""
     try:
-        # Нормализуем путь для Windows
-        normalized_filename = filename.replace('\\', '/')
-        file_path = TMP_DIR / Path(normalized_filename).name
-        if file_path.exists():
-            return send_from_directory(str(TMP_DIR), Path(normalized_filename).name)
+        import urllib.parse
+        decoded_filename = urllib.parse.unquote(filename)
+        
+        safe_filename = secure_filename(decoded_filename)
+        if not safe_filename:
+            return ("Invalid filename", 400)
+        
+        file_path = TEMP_DIR / safe_filename
+        
+        if file_path.exists() and file_path.is_file():
+            return send_from_directory(str(TEMP_DIR), safe_filename)
         else:
-            print(f"❌ Файл не найден: {file_path}")
-            return ("Not found", 404)
+            return ("File not found", 404)
+            
     except Exception as e:
-        print(f"❌ Ошибка отдачи файла: {e}")
-        return ("Not found", 404)
+        logger.error(f" Ошибка отдачи загруженного файла {filename}: {e}", exc_info=True)
+        return ("Server error", 500)
 
-# служим примеры из processed (если нужно)
 @app.route("/processed/<path:filepath>")
 def processed_img(filepath):
+    """Отдача обработанных изображений из data/processed"""
     try:
-        # Нормализуем путь
-        normalized_filepath = filepath.replace('\\', '/')
-        processed_dir = Path(getattr(config, 'DATA_PROCESSED', 'data/processed'))
-        full_path = processed_dir / normalized_filepath
+        if not DATA_PROCESSED_DIR.exists():
+            logger.error(f" Директория data/processed не найдена: {DATA_PROCESSED_DIR}")
+            return ("Data directory not found", 500)
         
-        if full_path.exists():
-            return send_from_directory(str(full_path.parent), full_path.name)
-        else:
-            print(f"❌ Processed файл не найден: {full_path}")
-            return ("Not found", 404)
-    except Exception as e:
-        print(f"❌ Ошибка отдачи processed файла: {e}")
-        return ("Not found", 404)
-
-# API endpoint для программного использования
-@app.route("/api/search", methods=["POST"])
-def api_search():
-    """API endpoint для поиска"""
-    try:
-        files = request.files.getlist("images")
-        files = [f for f in files if f and f.filename and allowed_file(f.filename)]
+        # Нормализация пути
+        decoded_filepath = filepath.replace('\\', '/').strip('/')
+        if not decoded_filepath:
+            return ("Invalid path", 400)
         
-        if len(files) == 0:
-            return jsonify({"error": "No valid images provided"}), 400
-
-        embeddings = []
-        for f in files[:3]:
-            # Читаем изображение в память
-            img_bytes = f.read()
-            img_array = np.frombuffer(img_bytes, np.uint8)
-            img = cv.imdecode(img_array, cv.IMREAD_COLOR)
-            
-            if img is not None:
-                emb = embed_from_bgr(img)
-                embeddings.append(emb)
-
-        if len(embeddings) == 0:
-            return jsonify({"error": "Could not process any images"}), 400
-
-        # Усредняем эмбеддинги
-        stacked = np.vstack(embeddings)
-        query_emb = np.mean(stacked, axis=0, keepdims=True)
-        query_emb = query_emb / (np.linalg.norm(query_emb, axis=1, keepdims=True) + 1e-12)
-
-        results = search_by_emb(query_emb, topk=5, rerank_per_image=True)
+        full_path = DATA_PROCESSED_DIR / decoded_filepath
         
-        # Форматируем результаты
-        formatted_results = []
-        for i, result in enumerate(results):
-            if len(result) == 3:
-                pid, distance, similarity_percent = result
+        if full_path.exists() and full_path.is_file():
+            if full_path.suffix.lower() in ['.jpg', '.jpeg', '.png', '.gif']:
+                return send_from_directory(str(full_path.parent), full_path.name)
             else:
-                # fallback для старого формата
-                pid, distance = result
-                similarity_percent = max(0, min(100, 100 * np.exp(-distance/2)))
-                
-            formatted_results.append({
-                "part_id": str(pid),
-                "distance": float(distance),
-                "similarity_percent": f"{similarity_percent:.1f}%",
-                "is_best": i == 0
-            })
-
-        return jsonify({
-            "success": True,
-            "results": formatted_results
-        })
-        
+                return ("Not an image", 400)
+        else:
+            return ("File not found", 404)
+            
     except Exception as e:
-        print(f"❌ API ошибка: {e}")
-        import traceback
-        traceback.print_exc()
-        return jsonify({"error": str(e)}), 500
+        logger.error(f" Ошибка отдачи processed файла {filepath}: {e}")
+        return ("Server error", 500)
 
 @app.route("/health")
 def health_check():
     """Health check endpoint"""
     return jsonify({
         "status": "healthy",
-        "model_loaded": model is not None,
-        "indexes_loaded": IDX_C is not None,
-        "centroids_count": len(CENTROIDS) if CENTROIDS is not None else 0,
-        "images_count": len(PERIMG) if PERIMG is not None else 0
+        "search_engine_ready": search_engine is not None,
+        "data_processed_dir": str(DATA_PROCESSED_DIR),
+        "data_processed_dir_exists": DATA_PROCESSED_DIR.exists(),
+        "tmp_dir": str(TEMP_DIR),
+        "tmp_dir_exists": TEMP_DIR.exists()
     })
 
+
+# --- Инициализация и запуск ---
 if __name__ == "__main__":
-    # Инициализация модели и индексов
-    if not init_model_and_indexes():
-        print("❌ Не удалось инициализировать модель и индексы")
+    # Инициализация поисковой системы (для запуска без Gunicorn)
+    if not init_search_engine():
+        logger.error(" Критическая ошибка: не удалось инициализировать поисковую систему")
         sys.exit(1)
     
-    print("🚀 Запуск Flask приложения...")
-    app.run(host="0.0.0.0", port=5000, debug=True)
+    # Запуск Flask приложения
+    import utils.config as config_module
+    host = getattr(config_module, 'WEB_HOST', '0.0.0.0')
+    port = getattr(config_module, 'WEB_PORT', 5000)
+    debug = getattr(config_module, 'WEB_DEBUG', False)
+    
+    logger.info(f" Запуск Flask веб-приложения на http://{host}:{port} (debug={debug})")
+    app.run(host=host, port=port, debug=debug)

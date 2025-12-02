@@ -1,0 +1,104 @@
+services:
+  api:
+    build:
+      context: .
+      dockerfile: src/api/Dockerfile
+    ports:
+      - "3887:3887"
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+    volumes:
+      - ./data:/app/data
+      - ./models:/app/models
+      - ./data/processed:/app/data/processed
+      - ./data/embeddings:/app/data/embeddings
+      - ./data/centroids:/app/data/centroids
+      - ./data/indexes:/app/data/indexes
+      - ./data/models:/app/data/models
+      - app-uploads:/app/data/uploads
+      - app-logs:/app/logs
+      - ./src:/app/src:ro
+      - ./utils:/app/utils:ro
+    environment:
+      - PYTHONPATH=/app
+      - TORCH_HOME=/app/data/models
+      - HOME=/app
+      - GUNICORN_TIMEOUT=220
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 20G
+        reservations:
+          memory: 8G
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:3887/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    networks:
+      - backend
+
+  web:
+    build:
+      context: .
+      dockerfile: src/web_app/Dockerfile
+    ports:
+      - "5000:5000"
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+    volumes:
+      - ./data:/app/data
+      - ./models:/app/models
+      - ./data/processed:/app/data/processed
+      - ./data/embeddings:/app/data/embeddings
+      - ./data/centroids:/app/data/centroids
+      - ./data/indexes:/app/data/indexes
+      - ./data/models:/app/data/models
+      - app-uploads:/app/data/uploads
+      - app-logs:/app/logs
+      - ./src:/app/src:ro
+      - ./utils:/app/utils:ro
+    environment:
+      - PYTHONPATH=/app
+      - TORCH_HOME=/app/data/models
+      - HOME=/app
+      - GUNICORN_TIMEOUT=220
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 20G
+        reservations:
+          memory: 8G
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:5000/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    networks:
+      - backend
+
+# Создаем соединение между контейнерами для корректного обмена данными     
+networks:
+  backend:
+    driver: bridge
+    
+volumes:  # Добавляем общий каталог для отработки логирования и загрузок
+  app-logs: {}
+  app-uploads: 
+    driver: local

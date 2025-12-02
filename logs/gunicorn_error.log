@@ -1,0 +1,62 @@
+[2025-10-31 00:38:49 -0500] [876483] [INFO] Starting gunicorn 21.2.0
+[2025-10-31 00:38:49 -0500] [876483] [INFO] Listening at: http://0.0.0.0:5000 (876483)
+[2025-10-31 00:38:49 -0500] [876483] [INFO] Using worker: sync
+[2025-10-31 00:38:49 -0500] [877240] [INFO] Booting worker with pid: 877240
+[2025-10-31 00:38:49 -0500] [877251] [INFO] Booting worker with pid: 877251
+[2025-10-31 00:42:31 -0500] [876483] [CRITICAL] WORKER TIMEOUT (pid:877240)
+[2025-10-31 00:42:33 -0500] [876483] [ERROR] Worker (pid:877240) was sent SIGKILL! Perhaps out of memory?
+[2025-10-31 00:42:33 -0500] [878822] [INFO] Booting worker with pid: 878822
+[2025-10-31 00:44:33 -0500] [876483] [CRITICAL] WORKER TIMEOUT (pid:877251)
+[2025-10-31 00:44:34 -0500] [876483] [ERROR] Worker (pid:877251) was sent SIGKILL! Perhaps out of memory?
+[2025-10-31 00:44:34 -0500] [879577] [INFO] Booting worker with pid: 879577
+[2025-10-31 00:47:52 -0500] [876483] [INFO] Handling signal: winch
+[2025-10-31 00:47:52 -0500] [876483] [INFO] Handling signal: winch
+[2025-10-31 00:47:52 -0500] [876483] [INFO] Handling signal: winch
+[2025-10-31 00:47:52 -0500] [876483] [INFO] Handling signal: winch
+[2025-10-31 00:47:52 -0500] [876483] [INFO] Handling signal: winch
+[2025-10-31 00:47:52 -0500] [876483] [INFO] Handling signal: winch
+[2025-10-31 00:47:52 -0500] [876483] [INFO] Handling signal: winch
+[2025-10-31 00:47:53 -0500] [876483] [INFO] Handling signal: winch
+[2025-10-31 00:47:54 -0500] [876483] [INFO] Handling signal: int
+[2025-10-31 00:47:54 -0500] [878822] [INFO] Worker exiting (pid: 878822)
+[2025-10-31 00:47:54 -0500] [879577] [INFO] Worker exiting (pid: 879577)
+[2025-10-31 00:48:00 -0500] [876483] [INFO] Shutting down: Master
+[2025-10-31 04:52:54 -0500] [974005] [INFO] Starting gunicorn 21.2.0
+[2025-10-31 04:52:54 -0500] [974005] [INFO] Listening at: http://0.0.0.0:5000 (974005)
+[2025-10-31 04:52:54 -0500] [974005] [INFO] Using worker: sync
+[2025-10-31 04:52:54 -0500] [974213] [INFO] Booting worker with pid: 974213
+[2025-10-31 04:52:55 -0500] [974214] [INFO] Booting worker with pid: 974214
+[2025-10-31 04:59:45 -0500] [974005] [CRITICAL] WORKER TIMEOUT (pid:974213)
+[2025-10-31 04:59:46 -0500] [974005] [ERROR] Worker (pid:974213) was sent SIGKILL! Perhaps out of memory?
+[2025-10-31 04:59:46 -0500] [977028] [INFO] Booting worker with pid: 977028
+[2025-10-31 05:01:46 -0500] [974005] [CRITICAL] WORKER TIMEOUT (pid:974214)
+[2025-10-31 05:01:48 -0500] [974005] [ERROR] Worker (pid:974214) was sent SIGKILL! Perhaps out of memory?
+[2025-10-31 05:01:48 -0500] [977850] [INFO] Booting worker with pid: 977850
+[2025-10-31 05:10:44 -0500] [974005] [INFO] Handling signal: int
+[2025-10-31 05:10:44 -0500] [977028] [INFO] Worker exiting (pid: 977028)
+[2025-10-31 05:10:44 -0500] [977850] [INFO] Worker exiting (pid: 977850)
+[2025-10-31 05:10:46 -0500] [974005] [INFO] Shutting down: Master
+[2025-10-31 05:43:45 -0500] [994202] [INFO] Starting gunicorn 21.2.0
+[2025-10-31 05:43:45 -0500] [994202] [INFO] Listening at: http://0.0.0.0:5000 (994202)
+[2025-10-31 05:43:45 -0500] [994202] [INFO] Using worker: sync
+[2025-10-31 05:43:45 -0500] [994248] [INFO] Booting worker with pid: 994248
+[2025-10-31 05:43:48 -0500] [994202] [INFO] Handling signal: winch
+[2025-10-31 05:43:48 -0500] [994202] [INFO] Handling signal: winch
+[2025-10-31 05:43:48 -0500] [994202] [INFO] Handling signal: winch
+[2025-10-31 05:43:48 -0500] [994202] [INFO] Handling signal: winch
+[2025-10-31 05:43:48 -0500] [994202] [INFO] Handling signal: winch
+[2025-10-31 05:43:48 -0500] [994202] [INFO] Handling signal: winch
+[2025-10-31 05:43:48 -0500] [994202] [INFO] Handling signal: winch
+[2025-10-31 05:43:49 -0500] [994202] [INFO] Handling signal: winch
+[2025-10-31 05:43:49 -0500] [994202] [INFO] Handling signal: winch
+[2025-10-31 05:43:49 -0500] [994202] [INFO] Handling signal: winch
+[2025-10-31 05:43:49 -0500] [994202] [INFO] Handling signal: winch
+[2025-10-31 05:43:49 -0500] [994202] [INFO] Handling signal: winch
+[2025-10-31 05:44:38 -0500] [994202] [INFO] Handling signal: hup
+[2025-10-31 05:44:38 -0500] [994202] [INFO] Hang up: Master
+[2025-10-31 05:44:38 -0500] [994202] [INFO] Handling signal: hup
+[2025-10-31 05:44:38 -0500] [994202] [INFO] Hang up: Master
+[2025-10-31 05:44:38 -0500] [994833] [INFO] Booting worker with pid: 994833
+[2025-10-31 05:44:38 -0500] [994834] [INFO] Booting worker with pid: 994834
+[2025-10-31 05:44:40 -0500] [994202] [ERROR] Worker (pid:994248) was sent SIGHUP!
+[2025-10-31 05:44:48 -0500] [994202] [INFO] Handling signal: term

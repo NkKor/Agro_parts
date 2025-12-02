@@ -1,0 +1,52 @@
+10-31 05:43 src.web_app.app INFO      project_root: /media/koraki/Data/code/Agro-parts
+10-31 05:43 src.web_app.app INFO      TEMP_DIR: /media/koraki/Data/code/Agro-parts/data/uploads
+10-31 05:43 src.web_app.app INFO      DATA_PROCESSED_DIR: /media/koraki/Data/code/Agro-parts/data/processed
+10-31 05:43 src.web_app.app INFO      EMBED_DIR: /media/koraki/Data/code/Agro-parts/data/embeddings
+10-31 05:43 src.web_app.app INFO      TEMP_DIR существует: True
+10-31 05:43 src.web_app.app INFO      Gunicorn Preload: Инициализация поисковой системы на уровне модуля (WEB)...
+10-31 05:43 src.web_app.app INFO      Инициализация поисковой системы...
+10-31 05:43 src.search.searcher INFO      Инициализация поисковой системы...
+10-31 05:43 src.search.searcher INFO      Используемое устройство: cuda
+10-31 05:43 src.search.searcher INFO      Модель загружена.
+10-31 05:43 src.search.searcher INFO      EMB_DIR: /media/koraki/Data/code/Agro-parts/data/embeddings
+10-31 05:43 src.search.searcher INFO      CENTROIDS_DIR: /media/koraki/Data/code/Agro-parts/data/centroids
+10-31 05:43 src.search.searcher INFO      INDEXES_DIR: /media/koraki/Data/code/Agro-parts/data/indexes
+10-31 05:43 src.search.searcher INFO      Загружено 1056432 эмбеддингов изображений
+10-31 05:43 src.search.searcher INFO      Загружено 15840 центроидов
+10-31 05:44 src.search.searcher INFO      FAISS индекс изображений загружен (1056432 векторов)
+10-31 05:44 src.search.searcher INFO      FAISS индекс центроидов загружен (15840 векторов)
+10-31 05:44 src.search.searcher INFO      Данные загружены успешно
+10-31 05:44 src.web_app.app INFO      Поисковая система инициализирована
+10-31 05:44 root         INFO     Worker 994248: Инициализация SearchEngine после форка...
+10-31 05:44 src.search.searcher INFO      Инициализация поисковой системы...
+10-31 05:44 src.search.searcher INFO      Используемое устройство: cuda
+10-31 05:44 src.search.searcher INFO      Модель загружена.
+10-31 05:44 src.search.searcher INFO      EMB_DIR: /media/koraki/Data/code/Agro-parts/data/embeddings
+10-31 05:44 src.search.searcher INFO      CENTROIDS_DIR: /media/koraki/Data/code/Agro-parts/data/centroids
+10-31 05:44 src.search.searcher INFO      INDEXES_DIR: /media/koraki/Data/code/Agro-parts/data/indexes
+10-31 05:44 src.web_app.app INFO      project_root: /media/koraki/Data/code/Agro-parts
+10-31 05:44 src.web_app.app INFO      TEMP_DIR: /media/koraki/Data/code/Agro-parts/data/uploads
+10-31 05:44 src.web_app.app INFO      DATA_PROCESSED_DIR: /media/koraki/Data/code/Agro-parts/data/processed
+10-31 05:44 src.web_app.app INFO      EMBED_DIR: /media/koraki/Data/code/Agro-parts/data/embeddings
+10-31 05:44 src.web_app.app INFO      TEMP_DIR существует: True
+10-31 05:44 src.web_app.app INFO      Gunicorn Preload: Инициализация поисковой системы на уровне модуля (WEB)...
+10-31 05:44 src.web_app.app INFO      Инициализация поисковой системы...
+10-31 05:44 src.search.searcher INFO      Инициализация поисковой системы...
+10-31 05:44 src.web_app.app INFO      project_root: /media/koraki/Data/code/Agro-parts
+10-31 05:44 src.web_app.app INFO      TEMP_DIR: /media/koraki/Data/code/Agro-parts/data/uploads
+10-31 05:44 src.web_app.app INFO      DATA_PROCESSED_DIR: /media/koraki/Data/code/Agro-parts/data/processed
+10-31 05:44 src.web_app.app INFO      EMBED_DIR: /media/koraki/Data/code/Agro-parts/data/embeddings
+10-31 05:44 src.web_app.app INFO      TEMP_DIR существует: True
+10-31 05:44 src.web_app.app INFO      Gunicorn Preload: Инициализация поисковой системы на уровне модуля (WEB)...
+10-31 05:44 src.web_app.app INFO      Инициализация поисковой системы...
+10-31 05:44 src.search.searcher INFO      Инициализация поисковой системы...
+10-31 05:44 src.search.searcher INFO      Используемое устройство: cuda
+10-31 05:44 src.search.searcher INFO      Используемое устройство: cuda
+10-31 05:44 src.search.searcher INFO      Модель загружена.
+10-31 05:44 src.search.searcher INFO      EMB_DIR: /media/koraki/Data/code/Agro-parts/data/embeddings
+10-31 05:44 src.search.searcher INFO      CENTROIDS_DIR: /media/koraki/Data/code/Agro-parts/data/centroids
+10-31 05:44 src.search.searcher INFO      INDEXES_DIR: /media/koraki/Data/code/Agro-parts/data/indexes
+10-31 05:44 src.search.searcher INFO      Модель загружена.
+10-31 05:44 src.search.searcher INFO      EMB_DIR: /media/koraki/Data/code/Agro-parts/data/embeddings
+10-31 05:44 src.search.searcher INFO      CENTROIDS_DIR: /media/koraki/Data/code/Agro-parts/data/centroids
+10-31 05:44 src.search.searcher INFO      INDEXES_DIR: /media/koraki/Data/code/Agro-parts/data/indexes

@@ -2,6 +2,19 @@ import torch
 import torch.nn as nn
 import torchvision.models as models
 import torch.nn.functional as F
+from pathlib import Path
+import os
+
+
+# Определяем корень проекта
+current_file = Path(__file__).resolve()
+project_root = current_file.parent.parent.parent
+
+# --- Настройка TORCH_HOME ---
+# Правильный путь к моделям относительно корня проекта
+torch_home = project_root / 'data' / 'models'
+torch_home.mkdir(parents=True, exist_ok=True)
+os.environ['TORCH_HOME'] = str(torch_home)
 
 class ResNet50Encoder(nn.Module):
     def __init__(self, out_dim=2048, pretrained=True):
