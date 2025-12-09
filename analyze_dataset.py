@@ -12,6 +12,9 @@
 import os
 import sys
 import cv2 as cv
+import torch
+import torchvision.transforms as T
+from ultralytics import YOLO
 import numpy as np
 import pandas as pd
 from pathlib import Path
@@ -59,7 +62,7 @@ class DatasetAnalyzer:
     def __init__(self,
                  raw_dir: str = "data/raw",
                  target_size: int = 384,
-                 yolo_model: str = 'yolov8n.pt',
+                 yolo_model: str = 'yolov8s.pt',
                  confidence_threshold: float = 0.25):
         self.raw_dir = Path(raw_dir)
         self.target_size = target_size
@@ -588,8 +591,8 @@ def main():
                        help="Путь к исходным изображениям (default: data/raw)")
     parser.add_argument("--output", type=str, default="dataset_analysis_report.txt",
                        help="Файл для сохранения отчета (default: dataset_analysis_report.txt)")
-    parser.add_argument("--model", type=str, default='yolov8n.pt',
-                       help="YOLO модель для детекции (default: yolov8n.pt)")
+    parser.add_argument("--model", type=str, default='yolov8s.pt',
+                       help="YOLO модель для детекции (default: yolov8s.pt)")
     parser.add_argument("--conf", type=float, default=0.25,
                        help="Порог уверенности для YOLO (default: 0.25)")
 

@@ -52,7 +52,7 @@ class YOLOPartPreprocessor:
     """Предобработчик изображений сельхоз-запчастей с YOLO"""
     
     def __init__(self, target_size: int = 384,
-                 yolo_model: str = 'yolov8n.pt',
+                 yolo_model: str = 'yolov8m.pt',
                  confidence_threshold: float = 0.25,
                  iou_threshold: float = 0.45,
                  preserve_aspect_ratio: bool = True,
