@@ -96,6 +96,32 @@ sizes = [224, 256, 288, 320, 384, 448, 512, 640, 768]
 384×384 - оптимальный баланс (рекомендуется)
 512×512 - максимальное качество
 
+##### - новая версия предобработки с использованием дедупликации и сегментации с U2Net
+
+Анализ проблемных директорий:
+
+python src/preprocessdir.py --src data/raw --out data/problematic --score-threshold 50
+
+Параметр	Назначение
+--src	исходная папка
+--out	куда сложить плохие каталоги
+--score-threshold	минимальный средний скор качества (контраст + резкость)
+--log	json лог (по умолчанию preprocessdir_log.json)
+
+Пример базовой команды:
+
+python src/preprocess_images.py --src data/raw --out data/processed --max-images 20 --device cuda
+
+Параметр	Назначение
+--src	исходные каталоги
+--out	куда сохранять обработанные
+--max-images	максимум итоговых изображений
+--device	cuda / cpu
+--log	JSON лог (по умолчанию preprocess_images_log.json)
+
+
+
+
 
 ### 2 - Извлечение признаков изображений
 
